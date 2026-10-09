@@ -16,6 +16,14 @@ import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+# 让 BCB_TTS_CWD 真正对 import 生效。
+# 以 `python -u xxx.py` 启动时 sys.path[0] 是脚本所在目录，不含 cwd；
+# IndexTTS2 若非 editable 安装，或源码目录被人挪过位置（editable 的 .pth 里
+# 写的是绝对路径，挪完就失效），少了这几行会直接 ModuleNotFoundError。
+_cwd = os.getcwd()
+if _cwd not in sys.path:
+    sys.path.insert(0, _cwd)
+
 CKPT = os.environ.get("BCB_TTS_CKPT") or str(
     Path(__file__).resolve().parents[1] / "checkpoints"
 )
