@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>两面包夹芝士 · bread-cheese-bread</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <h1>🍞 两面包夹芝士</h1>
+  <p class="sub">导入一段音视频 → 框定采样区间 A–C → 指定插入点 B → 用这段的音色说出你想说的话，精准夹进去</p>
+  <div class="env" id="env"></div>
+</header>
+
+<main>
+  <!-- 1. 导入 -->
+  <section id="step-import">
+    <h2>1 · 导入音视频</h2>
+    <div id="drop" class="drop">
+      <p>拖一个音频或视频文件到这里，或<span class="link">点击选择</span></p>
+      <p class="hint">视频会自动抽音轨。文件留在本地，不上传任何服务器。</p>
+      <input type="file" id="file" accept="audio/*,video/*" hidden>
+    </div>
+    <div id="loadbar" class="loadbar hidden"><div id="loadfill"></div><span id="loadtxt">导入中…</span></div>
+  </section>
+
+  <!-- 2. 框点 -->
+  <section id="step-marks" class="hidden">
+    <h2>2 · 框定 A / B / C</h2>
+    <p class="hint">
+      <b class="tag tag-a">A</b> 采样起点 ·
+      <b class="tag tag-b">B</b> 插入点 ·
+      <b class="tag tag-c">C</b> 采样终点。
+      拖动波形上的标记，或在下面直接输入时间。
+    </p>
+    <div class="wavewrap">
+      <canvas id="wave"></canvas>
+    </div>
+    <div class="markers">
+      <label>A<span class="tag tag-a"></span><input type="text" id="in-a" class="tcode"></label>
+      <label>B<span class="tag tag-b"></span><input type="text" id="in-b" class="tcode"></label>
+      <label>C<span class="tag tag-c"></span><input type="text" id="in-c" class="tcode"></label>
+      <button id="btn-head" class="ghost">把播放头设为 B</button>
+      <button id="btn-play-ac" class="ghost">▶ 试听 A→C</button>
+      <button id="btn-play-all" class="ghost">▶ 播放全片</button>
+    </div>
+
+    <div id="refbox" class="refbox">
+      <div class="refline"><b>音色参考窗口</b><span id="ref-range">—</span></div>
+      <div class="refline dim" id="ref-reason"></div>
+      <div class="refline" id="ref-stats"></div>
+      <div id="ref-warn" class="warn hidden"></div>
+      <div class="refactions">
+        <button id="btn-asr" class="ghost">🗣 识别参考片段在说什么</button>
+        <span id="asr-text" class="asr dim"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. 旁白 -->
+  <section id="step-text" class="hidden">
+    <h2>3 · 写旁白</h2>
+    <textarea id="text" rows="4" placeholder="输入你想让这段声音说的话。"></textarea>
+    <div class="opts">
+      <label>语速 <input type="range" id="speed" min="0.8" max="1.4" step="0.05" value="1.0">
+        <output id="speed-v">1.00</output></label>
+      <span class="dim">（duration_factor，大于 1 更慢）</span>
+    </div>
+    <div class="opts">
+      <label><input type="checkbox" id="auto-ref" checked> 自动精选参考窗口</label>
+      <label><input type="checkbox" id="unify"> 整体响度统一到 −16 LUFS</label>
+      <label><input type="checkbox" id="qc" checked> 生成后回读质检</label>
+    </div>
+    <div class="opts">
+      <span>输出范围</span>
+      <label><input type="radio" name="mode" value="sandwich" checked> 夹心（A→B + 旁白 + B→C）</label>
+      <label><input type="radio" name="mode" value="full"> 整条（0→B + 旁白 + B→末尾）</label>
+    </div>
+    <button id="btn-gen" class="primary">🍞 开始夹</button>
+  </section>
+
+  <!-- 4. 结果 -->
+  <section id="step-result" class="hidden">
+    <h2>4 · 结果</h2>
+    <div id="progress" class="progress hidden">
+      <div class="bar"><div id="pfill"></div></div>
+      <span id="ptxt"></span>
+    </div>
+    <div id="err" class="err hidden"></div>
+    <div id="result"></div>
+  </section>
+</main>
+
+<audio id="player"></audio>
+<script src="/app.js"></script>
+</body>
+</html>
