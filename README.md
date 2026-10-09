@@ -169,7 +169,11 @@ pinyin.vocab     multilingual_zh_ja_yue_char_del.tiktoken
 qwen0.6bemo4-merge/                hf_cache/
 ```
 
-权重文件名与体积随版本变化，下载方式以官方仓库为准。
+权重文件名与体积随版本变化，下载方式以官方仓库为准。主权重的 HuggingFace 仓库名为 `IndexTeam/IndexTTS-2.5`。
+
+`hf_cache/` 一项容易被忽略：w2v-bert-2.0、semantic_codec、bigvgan、campplus 四个辅助模型
+（合计约 5 GB）不包含在官方权重包里，首次加载模型时才联网下载，会阻塞第一次合成。
+国内网络建议提前走镜像预取，参见上文的 `HF_ENDPOINT` 设置。
 
 安装完成后验证：
 
