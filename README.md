@@ -410,10 +410,17 @@ server/           网页服务：任务调度、ffmpeg 封装、参考窗口选�
   preflight.py      启动前自检，可独立执行
 worker/           常驻合成服务，运行于模型自身环境（仅使用标准库）
 web/              单页界面，无外部依赖，离线可用
+iina/             IINA 播放器插件：在播放器内完成同一套操作（详见 iina/README.md）
 bcb.env.example   路径配置模板
 run.sh            启动脚本（含自检）
 work/             运行时产物（已 gitignore，含隐私数据）
 ```
+
+### IINA 播放器插件
+
+除浏览器界面外，同一套能力也做成了 IINA 插件：面板位于播放器右侧边栏，
+可直接读取正在播放的文件并打点生成，无需另外打开浏览器。
+安装、使用与验收清单见 [`iina/README.md`](iina/README.md)。
 
 ### 环境隔离设计
 

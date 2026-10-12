@@ -139,9 +139,27 @@ function pushMarks() {
   postSession({ marks: marks });
 }
 
+/**
+ * 面板上的按钮把打点写进会话，快捷键则写在插件本地。
+ * 两边可能各自只写了一半（例如点按钮打 A、按快捷键打 C），
+ * 所以每轮都以会话为准补进本地 —— 否则本地缺失时试听会误判为「还没打点」。
+ */
+function syncMarks(session) {
+  const s = session && session.marks;
+  if (!s) return;
+  ["a", "b", "c"].forEach(function (k) {
+    if (s[k] === undefined) return;
+    if (s[k] !== marks[k]) {
+      marks[k] = s[k];
+      gotUiReady && panel.postMessage("marks", marks);
+    }
+  });
+}
+
 /** 面板已经自己把稿子送上去了，这里把面板下的指令捞回来执行。 */
 function drainPanelCommands() {
   getSession(function (d) {
+    syncMarks(d);
     if (d.want_preview) {
       postSession({ want_preview: false });
       previewRef();
