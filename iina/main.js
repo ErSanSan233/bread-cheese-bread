@@ -1,48 +1,22 @@
 /**
  * Main 入口 —— 每个播放器窗口一个实例。播放器相关的能力只有这里能用：
- * iina.core 的数据（当前文件路径、播放位置）在 Global 入口取不到。
+ * iina.core / iina.mpv / iina.overlay / iina.sidebar 都属于窗口。
  *
- * 探针阶段 v3。已确认的事实：
- *   - core.status 可读：url / position / duration / paused，OSD 可用
- *   - Global 入口里 http 能连本机、exec 能跑 Python/ffmpeg、后台进程能存活
- *   - webview 页面里的 fetch / XHR 能直连本机后端（后端访问日志已证实）
- * 尚未确认：
- *   - 页面 → 插件的消息桥（postMessage）接不通。本文件试着从 Main 入口开窗口，
- *     验证这座桥是否只对 Main 生效。这是最后一环，决定界面怎么传参。
+ * 界面形态：主面板是 iina.sidebar，嵌在播放器右侧；即时提示是 iina.overlay，
+ * 浮在画面上。全程不依赖外部浏览器。
+ *
+ * 与面板的通信走本机后端中转：本机的 sidebar webview 不会向页面注入可用的
+ * 双向桥，但「插件 → 后端」和「页面 → 后端」两条路都实测可达。
+ * 插件周期上报播放状态，并轮询后端捞出面板下的指令。
  */
 
-const OUT_PATH = "/tmp/bcb-iina-probe-main.json";
-const WW_FLAG = "@data/webview-main.json";
+const PORT = 8733;
+const panel = iina.sidebar;
 
-function now() {
-  return new Date().toISOString();
-}
-
-async function probe(label, fn) {
-  try {
-    const value = await fn();
-    return { ok: true, value: value };
-  } catch (e) {
-    return { ok: false, error: String((e && e.message) || e) };
-  }
-}
-
-function resolve(p) {
-  try {
-    return iina.utils.resolvePath(p);
-  } catch (e) {
-    return p;
-  }
-}
-
-function writeTo(path, obj) {
-  try {
-    iina.file.write(resolve(path), JSON.stringify(obj, null, 2));
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
+/** 当前三个打点，null 表示未设置。A < B < C。 */
+let marks = { a: null, b: null, c: null };
+let overlayTimer = null;
+let gotUiReady = false;
 
 function toPath(url) {
   if (!url) return null;
@@ -56,115 +30,282 @@ function toPath(url) {
   return url;
 }
 
-function snapshot() {
-  const s = iina.core.status;
-  return {
-    url: s.url,
-    path: toPath(s.url),
-    title: s.title,
-    position: s.position,
-    duration: s.duration,
-    paused: s.paused,
-    idle: s.idle,
-    isNetworkResource: s.isNetworkResource,
-  };
+function currentMedia() {
+  let file = null, path = null, dur = 0;
+  try {
+    const s = iina.core.status;
+    file = s.title || toPath(s.url) || null;
+    path = toPath(s.url);
+    dur = s.duration || 0;
+  } catch (e) {
+    /* 播放器窗口可能还没就绪 */
+  }
+  // 刚载入文件时 core.status 的时长常常还没算出来，拿 mpv 兜一层
+  if (!dur) {
+    try {
+      dur = iina.mpv.getNumber("duration") || 0;
+    } catch (e) {
+      /* 忽略 */
+    }
+  }
+  return { file: file, path: path, dur: dur };
 }
 
-/** 从 Main 入口开同一个测试窗口：顺便把当前文件路径和播放位置拼在 URL 上传进去。 */
-function openProbeWindow() {
-  let snap = null;
+function currentPos() {
   try {
-    snap = snapshot();
+    return iina.core.status.position || iina.mpv.getNumber("time-pos") || 0;
+  } catch (e) {
+    try {
+      return iina.mpv.getNumber("time-pos") || 0;
+    } catch (e2) {
+      return 0;
+    }
+  }
+}
+
+/**
+ * 视频画面上的短提示。overlay 完全由插件驱动，不依赖与网页通信，
+ * 所以即便面板还没打开，提示照样能显示。
+ */
+function flash(message, isError) {
+  try {
+    iina.overlay.simpleMode();
+    iina.overlay.setStyle(
+      "html,body{margin:0;padding:0;background:transparent!important;overflow:hidden}" +
+        "p{position:absolute;left:0;right:0;bottom:56px;text-align:center;" +
+        "font:500 15px -apple-system,'PingFang SC',sans-serif;" +
+        "color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.9);margin:0;padding:0 20px}",
+    );
+    iina.overlay.setContent(
+      "<p style='color:" + (isError ? "#ff9c93" : "#ffffff") + "'>" + message + "</p>",
+    );
+    iina.overlay.show();
+    if (overlayTimer) clearTimeout(overlayTimer);
+    overlayTimer = setTimeout(function () {
+      try {
+        iina.overlay.hide();
+      } catch (e) {
+        /* 窗口可能已关闭 */
+      }
+    }, 2200);
+  } catch (e) {
+    try {
+      iina.core.osd(message);
+    } catch (e2) {
+      /* 放弃 */
+    }
+  }
+}
+
+/* ---------- 与后端通信 ---------- */
+
+function postSession(payload) {
+  try {
+    iina.http.post("http://127.0.0.1:" + PORT + "/api/session", {
+      data: payload,
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (e) {
+    /* 后端没启动时静默，不打扰正在看片子的人 */
+  }
+}
+
+function getSession(cb) {
+  try {
+    iina.http.get("http://127.0.0.1:" + PORT + "/api/session", {}).then(
+      function (res) {
+        try {
+          cb(JSON.parse(res.text || "{}"));
+        } catch (e) {
+          /* 解析不动就当没这回事 */
+        }
+      },
+      function () {
+        /* 后端未启动，忽略 */
+      },
+    );
   } catch (e) {
     /* 忽略 */
   }
-  // 走 URL 传参这条路，是因为「页面 → 插件」的消息桥在本机型（1.5.0 build 180）上
-  // 始终没通；而 URL 参数不依赖任何注入脚本。
-  const query =
-    "file=" + encodeURIComponent((snap && snap.path) || "") + "&pos=" + ((snap && snap.position) || 0);
-  try {
-    iina.standaloneWindow.setProperty({ title: "BCB 桥测试（Main）", resizable: true });
-    iina.standaloneWindow.setFrame(560, 380);
-    iina.standaloneWindow.onMessage("probeResult", function (data) {
-      writeTo(WW_FLAG, { stage: "Main 收到 webview 消息", data: data, time: now() });
+}
+
+function pushState() {
+  const m = currentMedia();
+  if (!m.path) return;
+  postSession({ path: m.path, name: m.file, pos: currentPos(), dur: m.dur, alive: true });
+}
+
+function pushMarks() {
+  postSession({ marks: marks });
+}
+
+/** 面板已经自己把稿子送上去了，这里把面板下的指令捞回来执行。 */
+function drainPanelCommands() {
+  getSession(function (d) {
+    if (d.want_preview) {
+      postSession({ want_preview: false });
+      previewRef();
+    }
+    if (d.want_goto !== undefined && d.want_goto !== null) {
+      const t = d.want_goto;
+      postSession({ want_goto: null });
       try {
-        iina.core.osd("BCB：webview 回报成功");
+        iina.mpv.set("time-pos", t);
       } catch (e) {
         /* 忽略 */
       }
-    });
-    iina.standaloneWindow.loadFile("probe.html?" + query);
-    iina.standaloneWindow.open();
-    writeTo(WW_FLAG, { stage: "Main 已开窗口，等待回报", 传入查询串: query, time: now() });
-  } catch (e) {
-    writeTo(WW_FLAG, { stage: "Main 开窗口失败", error: String(e), time: now() });
-  }
+    }
+  });
 }
 
-async function runProbe() {
-  const r = { scope: "main", time: now(), version: null, status: null, osd: null, mpv: null };
+/* ---------- 打点 ---------- */
 
-  r.version = await probe("core.getVersion", function () {
-    return iina.core.getVersion();
-  });
-  r.status = await probe("core.status", function () {
-    return snapshot();
-  });
-  r.osd = await probe("core.osd", async function () {
-    iina.core.osd("两面包夹芝士：探针就绪");
-    return "未抛错";
-  });
-  r.mpv = await probe("mpv time-pos", async function () {
-    return {
-      timePos: iina.mpv.getNumber("time-pos"),
-      mpvPath: iina.mpv.getString("path"),
-    };
-  });
-  return r;
-}
+/** 打点。B 必须落在 A 与 C 之间，否则拒绝并给出理由。 */
+function setMark(role) {
+  const t = currentPos();
+  const key = role.toLowerCase();
 
-async function main() {
-  const results = await runProbe();
-  writeTo(OUT_PATH, results);
-  writeTo("@data/probe-main.json", results);
-  iina.console.log("[bcb] Main 探针完成");
-
-  if (iina.menu) {
-    iina.menu.addItem(
-      iina.menu.item("🧪 探针：记录当前文件与播放位置", function () {
-        let snap = null;
-        try {
-          snap = snapshot();
-        } catch (e) {
-          iina.console.error("[bcb] 读播放状态失败：" + e);
-        }
-        writeTo("@data/status-manual.json", { time: now(), status: snap });
-        try {
-          const p = snap ? snap.position : null;
-          iina.core.osd(
-            "已记录：" +
-              ((snap && (snap.title || snap.path)) || "无文件") +
-              " @ " +
-              (p === null ? "无位置" : Math.round(p * 10) / 10 + "s"),
-          );
-        } catch (e) {
-          iina.console.error("[bcb] OSD 失败：" + e);
-        }
-      }),
-    );
-    iina.menu.addItem(iina.menu.item("🧪 测试 WebView 桥（Main）", openProbeWindow));
+  if (key === "a" && marks.c !== null && t >= marks.c) {
+    flash("A 要早于 C（当前在 C 之后）", true);
+    return;
+  }
+  if (key === "c" && marks.a !== null && t <= marks.a) {
+    flash("C 要晚于 A（当前在 A 之前）", true);
+    return;
+  }
+  if (key === "b") {
+    if (marks.a !== null && t <= marks.a) {
+      flash("B 要落在 A 与 C 之间", true);
+      return;
+    }
+    if (marks.c !== null && t >= marks.c) {
+      flash("B 要落在 A 与 C 之间", true);
+      return;
+    }
   }
 
-  // 首次自动跑一次，之后不再打扰
-  let need = true;
+  marks[key] = t;
+  pushMarks();
+  const label = { a: "面包起点 A", b: "插入点 B", c: "面包终点 C" }[key];
+  flash(label + " → " + t.toFixed(1) + "s");
+}
+
+function clearMarks() {
+  marks = { a: null, b: null, c: null };
+  pushMarks();
+  flash("已清空打点");
+}
+
+/** 播放 A→C，让用户亲耳确认旁白会照这段的语气来。 */
+function previewRef() {
+  if (marks.a === null || marks.c === null) {
+    flash("先打上 A 和 C", true);
+    return;
+  }
   try {
-    need = !iina.file.exists(resolve(WW_FLAG));
+    iina.mpv.set("time-pos", marks.a);
+    iina.core.resume();
+    flash("正在播放 A→C，这就是参考语音");
   } catch (e) {
-    need = true;
-  }
-  if (need) {
-    setTimeout(openProbeWindow, 1500);
+    flash("跳转失败：" + e, true);
   }
 }
 
-main();
+/* ---------- 网页消息（若本机环境注入了桥则会生效，作为加强项） ---------- */
+
+panel.onMessage("ui-ready", function () {
+  gotUiReady = true;
+  try {
+    iina.file.write(
+      iina.utils.resolvePath("@data/bridge-check.json"),
+      JSON.stringify(
+        { ok: true, bridge: "sidebar 双向可用", time: new Date().toISOString(), media: currentMedia() },
+        null,
+        2,
+      ),
+    );
+  } catch (e) {
+    /* 写不进也不影响功能 */
+  }
+  pushState();
+  pushMarks();
+});
+
+panel.onMessage("setMark", function (d) { setMark(d.role); });
+panel.onMessage("clearMarks", function () { clearMarks(); });
+panel.onMessage("preview", function () { previewRef(); });
+
+/* ---------- 启动 ---------- */
+
+/**
+ * 排错用：把本入口实际能拿到什么东西如实记进 @data/diag.json。
+ * 插件里很多失败是静默的，没有这一份就无从判断卡在哪一步。
+ */
+function diag(extra) {
+  try {
+    const rec = {
+      time: new Date().toISOString(),
+      iinaKeys: Object.keys(iina || {}),
+      typeof: {
+        sidebar: typeof iina.sidebar,
+        overlay: typeof iina.overlay,
+        event: typeof iina.event,
+        menu: typeof iina.menu,
+        core: typeof iina.core,
+      },
+    };
+    Object.assign(rec, extra || {});
+    iina.file.write(iina.utils.resolvePath("@data/diag.json"), JSON.stringify(rec, null, 2));
+  } catch (e) {
+    /* 连诊断都记录不了时，只能放弃 */
+  }
+}
+
+diag({ stage: "脚本开始执行" });
+
+/** 每一步单独兜错并记录。沙箱会把脚本异常直接丢弃，不逐段包起来就看不出卡在哪一步。 */
+const log = [];
+function step(name, fn) {
+  try {
+    fn();
+    log.push({ step: name, ok: true });
+  } catch (e) {
+    log.push({ step: name, ok: false, error: String((e && e.message) || e) });
+  }
+  diag({ log: log, gotUiReady: gotUiReady });
+}
+
+const MENU = [
+  ["打开夹芝士面板", function () { panel.show(); pushState(); }, "Alt+c"],
+  ["标记 A（面包起点）", function () { setMark("a"); }, "Alt+a"],
+  ["标记 B（插入点）", function () { setMark("b"); }, "Alt+b"],
+  ["标记 C（面包终点）", function () { setMark("c"); }, "Alt+s"],
+  ["清空打点", function () { clearMarks(); }, null],
+  ["试听 A→C（旁白就照这段的语气来）", previewRef, "Alt+p"],
+];
+
+// 关键点：播放器窗口就绪之前 sidebar 不可用，过早调用会抛
+// "sidebar.loadFile called when window is not available"。
+// 必须挂到 iina.window-loaded 之后再动它；菜单项不受此限制，可以直接注册。
+step("挂载 iina.window-loaded", function () {
+  iina.event.on("iina.window-loaded", function () {
+    step("sidebar.loadFile", function () { panel.loadFile("ui/index.html"); });
+    step("sidebar.show", function () { panel.show(); });
+    step("推送初始状态", function () { pushState(); pushMarks(); });
+  });
+});
+
+MENU.forEach(function (m) {
+  step("菜单：" + m[0], function () {
+    iina.menu.addItem(m[2] ? iina.menu.item(m[0], m[1], { keyBinding: m[2] }) : iina.menu.item(m[0], m[1]));
+  });
+});
+
+step("周期上报与取指令", function () {
+  setInterval(function () {
+    pushState();
+    drainPanelCommands();
+  }, 800);
+});
+
+diag({ stage: "脚本执行完毕", log: log, gotUiReady: gotUiReady });

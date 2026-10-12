@@ -17,9 +17,13 @@ esac
 mkdir -p "$DEST"
 rm -rf "${DEST:?}/"*
 # 这里显式列出要装的文件，避免把开发用的东西（源码、文档）一起拷进去
-for f in Info.json global.js main.js probe.html; do
+for f in Info.json global.js main.js; do
   [ -f "$SRC/$f" ] && cp "$SRC/$f" "$DEST/"
 done
+if [ -d "$SRC/ui" ]; then
+  rm -rf "${DEST:?}/ui"
+  cp -R "$SRC/ui" "$DEST/ui"
+fi
 
 echo "已安装到："
 echo "  $DEST"

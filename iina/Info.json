@@ -1,7 +1,7 @@
 {
   "name": "两面包夹芝士",
   "identifier": "local.bread-cheese-bread",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "用当前视频里自己的声音，补一句它没说过的话",
   "author": {
     "name": "bread-cheese-bread contributors"
@@ -10,6 +10,8 @@
   "globalEntry": "global.js",
   "permissions": [
     "show-osd",
+    "show-alert",
+    "video-overlay",
     "file-system",
     "network-request"
   ],
@@ -17,8 +19,10 @@
     "127.0.0.1",
     "localhost"
   ],
+  "sidebarTab": {
+    "name": "夹芝士"
+  },
   "preferenceDefaults": {
-    "port": "8733",
-    "root": ""
+    "port": "8733"
   }
 }

@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>两面包夹芝士</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --surface: #f2f2f7;
+    --border: rgba(60, 60, 67, 0.18);
+    --text: #1c1c1e;
+    --muted: #8a8a8e;
+    --accent: #d8893b;
+    --accent-text: #ffffff;
+    --bread: #9a7b4f;
+    --cheese: #e0a458;
+    --ok: #1d9e75;
+    --bad: #c0392b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1e1e1e;
+      --surface: #2a2a2c;
+      --border: rgba(255, 255, 255, 0.14);
+      --text: #f2f2f7;
+      --muted: #98989d;
+      --accent: #e0a458;
+      --accent-text: #2c1e08;
+      --bread: #c8a97a;
+      --cheese: #f0bf72;
+      --ok: #35c79a;
+      --bad: #e8736a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 12px;
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.5 -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+    -webkit-user-select: none;
+  }
+  h1 { margin: 0 0 10px; font-size: 13px; font-weight: 600; letter-spacing: .02em; }
+  .file {
+    font-size: 11px; color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    margin-bottom: 2px;
+  }
+  .clock {
+    font: 500 20px/1.2 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: -.02em; margin-bottom: 10px;
+  }
+  .clock small { font-size: 12px; color: var(--muted); font-weight: 400; }
+
+  .field { margin-bottom: 10px; }
+  .label { font-size: 11px; color: var(--muted); margin-bottom: 4px; display: block; }
+  textarea {
+    width: 100%; min-height: 62px; resize: vertical;
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 8px; font: inherit; outline: none;
+    -webkit-user-select: text;
+  }
+  textarea:focus { border-color: var(--accent); }
+
+  button {
+    font: inherit; cursor: pointer;
+    border: 1px solid var(--border); border-radius: 6px;
+    background: var(--surface); color: var(--text);
+    padding: 6px 10px;
+  }
+  button:active { opacity: .7; }
+  button.primary {
+    background: var(--accent); color: var(--accent-text);
+    border-color: transparent; font-weight: 500; width: 100%; padding: 9px;
+  }
+  button.primary:disabled { opacity: .4; cursor: default; }
+  button.tiny { padding: 3px 7px; font-size: 11px; }
+
+  .marks { display: flex; gap: 6px; margin-bottom: 10px; }
+  .mark {
+    flex: 1; padding: 7px 6px; border-radius: 6px;
+    background: var(--surface); border: 1px solid var(--border); text-align: center;
+  }
+  .mark .k { font-size: 10px; color: var(--muted); display: block; }
+  .mark .v {
+    font: 500 13px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    display: block; margin: 1px 0 4px;
+  }
+  .mark.set { border-color: var(--accent); }
+  .mark[data-role="A"] .v, .mark[data-role="C"] .v { color: var(--bread); }
+  .mark[data-role="B"] .v { color: var(--cheese); }
+
+  .row { display: flex; gap: 6px; margin-bottom: 10px; }
+  .row button { flex: 1; }
+
+  .bar {
+    height: 26px; background: var(--surface); border-radius: 5px;
+    position: relative; overflow: hidden; margin-bottom: 10px;
+    border: 1px solid var(--border);
+  }
+  .b1 { position: absolute; top: 0; bottom: 0; background: var(--bread); opacity: .5; }
+  .nar { position: absolute; top: 0; bottom: 0; background: var(--cheese); }
+  .b2 { position: absolute; top: 0; bottom: 0; background: var(--bread); opacity: .5; }
+  .head { position: absolute; top: 0; bottom: 0; width: 1.5px; background: var(--text); }
+
+  .status {
+    margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--border);
+    font-size: 11px; color: var(--muted);
+  }
+  .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; }
+  .dot.on { background: var(--ok); }
+  .dot.off { background: var(--bad); }
+</style>
+</head>
+<body>
+  <h1>两面包夹芝士</h1>
+  <div class="file" id="file">未在播放</div>
+  <div class="clock"><span id="pos">--:--</span><small id="dur"> / --:--</small></div>
+
+  <div class="bar" id="bar">
+    <div class="b1" id="segA" style="display:none"></div>
+    <div class="nar" id="segN" style="display:none"></div>
+    <div class="b2" id="segC" style="display:none"></div>
+    <div class="head" id="head" style="left:0"></div>
+  </div>
+
+  <div class="marks">
+    <div class="mark" id="mA" data-role="A"><span class="k">A 面包起</span><span class="v">--</span><button class="tiny" data-set="A">打点</button></div>
+    <div class="mark" id="mB" data-role="B"><span class="k">B 插入点</span><span class="v">--</span><button class="tiny" data-set="B">打点</button></div>
+    <div class="mark" id="mC" data-role="C"><span class="k">C 面包终</span><span class="v">--</span><button class="tiny" data-set="C">打点</button></div>
+  </div>
+
+  <div class="row">
+    <button id="btnPrev">试听 Alt+P</button>
+    <button id="btnReset">清空</button>
+  </div>
+
+  <div class="field">
+    <span class="label">要补的旁白</span>
+    <textarea id="text" placeholder="写下这段话，它会用片子里自己的声音说出来……"></textarea>
+  </div>
+
+  <button class="primary" id="btnGen" disabled>合成并插回去</button>
+
+  <div class="status"><span class="dot off" id="dot"></span><span id="st">正在连接</span></div>
+
+<script>
+(function () {
+  var el = function (id) { return document.getElementById(id); };
+  var API = "http://127.0.0.1:8733";
+  var st = {
+    pos: 0, dur: 0, file: "", path: "", a: null, b: null, c: null,
+    backend: false, job: null, msg: "",
+  };
+
+  function fmt(s) {
+    if (s === null || s === undefined || isNaN(s)) return "--:--";
+    s = Math.max(0, Math.floor(s));
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+    var mm = (h > 0) ? String(m).padStart(2, "0") : String(m);
+    return (h > 0 ? h + ":" : "") + mm + ":" + String(x).padStart(2, "0");
+  }
+
+  function post(p, body) {
+    return fetch(API + p, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+    }).then(function (r) { return r.json(); });
+  }
+
+  // 播放器插件与本面板之间没有可用的消息桥（已在本机 IINA 1.5.0 上验证），
+  // 但两者都能访问本机后端：插件把播放状态写进 session，面板到这里取。
+  function poll() {
+    return fetch(API + "/api/session")
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        st.backend = true;
+        st.pos = d.pos || 0;
+        st.dur = d.dur || 0;
+        st.file = d.name || d.path || "";
+        st.path = d.path || "";
+        if (d.marks) { st.a = d.marks.a; st.b = d.marks.b; st.c = d.marks.c; }
+        paint();
+      })
+      .catch(function () { st.backend = false; paint(); });
+  }
+  setInterval(poll, 400);
+  poll();
+
+  function setMark(role) {
+    var patch = {};
+    patch[role] = st.pos;
+    post("/api/session", { marks: patch }).then(poll);
+  }
+
+  function clearMarks() {
+    post("/api/session", { marks: { a: null, b: null, c: null } }).then(poll);
+  }
+
+  function run() {
+    if (!st.path) { st.msg = "先在播放器里打开一个文件"; paint(); return; }
+    el("btnGen").disabled = true;
+    st.msg = "正在读取素材…";
+    paint();
+
+    post("/api/open", { path: st.path })
+      .then(function (r) {
+        if (!r.ok) throw new Error(r.error || "打不开这个文件");
+        st.job = r.id;
+        st.msg = "正在合成，第一次要约一分钟…";
+        paint();
+        return post("/api/job/" + r.id + "/generate", {
+          a: st.a, b: st.b, c: st.c,
+          text: el("text").value.trim(),
+          mode: "sandwich", speed: 1.0,
+          auto_ref: true, unify_loudness: false, qc: true,
+        });
+      })
+      .then(function () {
+        var tick = setInterval(function () {
+          fetch(API + "/api/job/" + st.job)
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+              st.msg = j.message || j.stage;
+              paint();
+              if (j.stage === "done" || j.stage === "error") {
+                clearInterval(tick);
+                st.job = null;
+                st.msg = j.stage === "done"
+                  ? "已生成，到输出目录查看"
+                  : "出错：" + (j.error || "未知原因");
+                paint();
+              }
+            })
+            .catch(function () {});
+        }, 700);
+      })
+      .catch(function (e) {
+        st.msg = "失败：" + (e.message || e);
+        paint();
+      });
+  }
+
+  function paint() {
+    el("file").textContent = st.file || "未在播放";
+    el("file").title = st.file || "";
+    el("pos").textContent = fmt(st.pos);
+    el("dur").textContent = " / " + fmt(st.dur);
+
+    ["a", "b", "c"].forEach(function (k) {
+      var v = st[k];
+      el("m" + k.toUpperCase()).querySelector(".v").textContent = fmt(v);
+      el("m" + k.toUpperCase()).className = "mark" + (v !== null ? " set" : "");
+    });
+
+    if (st.dur > 0) {
+      var pct = function (t) { return (Math.min(t, st.dur) / st.dur * 100) + "%"; };
+      el("head").style.left = pct(st.pos);
+      var ok = st.a !== null && st.c !== null && st.c > st.a;
+      var hasB = ok && st.b !== null && st.b > st.a && st.b < st.c;
+
+      el("segA").style.display = ok ? "block" : "none";
+      if (ok) el("segA").style.width = pct(hasB ? st.b : st.c);
+
+      el("segC").style.display = hasB ? "block" : "none";
+      if (hasB) {
+        el("segC").style.left = pct(st.b);
+        el("segC").style.width = ((st.c - st.b) / st.dur * 100) + "%";
+      }
+      el("segN").style.display = hasB ? "block" : "none";
+    }
+
+    var ready = st.backend && !!st.path && st.a !== null && st.b !== null &&
+                st.c !== null && st.a < st.b && st.b < st.c &&
+                el("text").value.trim().length > 0 && !st.job;
+    el("btnGen").disabled = !ready;
+    el("dot").className = "dot " + (st.backend ? "on" : "off");
+    el("st").textContent = st.msg ||
+      (st.backend ? "已连接本机服务" : "未连到本机服务（先跑 ./run.sh）");
+  }
+
+  document.querySelectorAll("[data-set]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      setMark(b.getAttribute("data-set").toLowerCase());
+    });
+  });
+  el("btnReset").addEventListener("click", clearMarks);
+  // 播放控制只能由插件做，面板通过调整后端的会话字段下达指令，插件轮询取走。
+  el("btnPrev").addEventListener("click", function () {
+    if (st.a === null || st.c === null) {
+      st.msg = "先打上 A 和 C 才能试听";
+      paint();
+      return;
+    }
+    post("/api/session", { want_preview: true });
+    st.msg = "正在播放 A→C，旁白会照这段的语气来";
+    paint();
+  });
+  el("text").addEventListener("input", paint);
+  el("btnGen").addEventListener("click", run);
+
+  paint();
+})();
+</script>
+</body>
+</html>
