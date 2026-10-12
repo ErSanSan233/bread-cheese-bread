@@ -178,6 +178,21 @@ IINA 为 webview 提供了 `postMessage` / `onMessage` 双向桥。
 修改 `iina/` 下的文件后，重新执行 `./iina/install.sh`，
 再完全退出并重启 IINA。后端侧（`server/`）的改动则需要重启 `./run.sh`。
 
+### 重启后端会让整机卡 1~2 分钟（不是故障）
+
+每次 `./run.sh` 都会重新拉起模型进程并加载约 10 GB 权重。加载期间磁盘与内存
+被占满，**连同 IINA 在内的其他程序会短暂失去响应**，属正常现象，等终端出现
+`[tts_server] 模型就绪` 再操作即可。因此：
+
+- 别连续重启。上一轮还没加载完就再开一个，两个模型进程会叠在一起。
+- 强杀后端（连按 Ctrl-C、`kill -9`）会让模型进程变孤儿，继续占着内存。
+  下一次启动时 `synth.reap_stale()` 会自动清掉这一类残留，终端会打印
+  `清掉 N 个上一轮残留的模型进程`。
+- 终端刷 `python(xxxxx) MallocStackLogging: can't turn off ...` 是
+  macOS libmalloc 的消息，由模型进程的子进程打印，无害；新版本已过滤掉触发它的
+  环境变量。翻历史看 `work/tts_server.log`，每个 `===== worker 启动 =====`
+  分隔符之间是一轮。
+
 ---
 
 ## 测试与验收

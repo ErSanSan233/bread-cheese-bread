@@ -86,6 +86,10 @@ def _mime(p: Path) -> str:
 
 @app.on_event("startup")
 def _startup():
+    # 上一轮残留的模型进程会占着十几 GB，务必先清再启动新的
+    stale = synth.reap_stale()
+    if stale:
+        print(f"[bcb] 清掉 {stale} 个上一轮残留的模型进程", flush=True)
     synth.warmup()
 
 

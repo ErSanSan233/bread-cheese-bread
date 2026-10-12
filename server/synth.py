@@ -5,8 +5,10 @@
 """
 import json
 import os
+import signal
 import subprocess
 import threading
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -35,7 +37,16 @@ def _spawn() -> int:
             "没配 BCB_TTS_PY —— 在 bcb.local.env 里指向 IndexTTS2 所在 venv 的 python")
     worker = config.ROOT / "worker" / "tts_server.py"
     _logfh = open(config.WORK / "tts_server.log", "ab", buffering=0)
-    env = dict(os.environ)
+    # 日志是追加写、跨轮累积的，每次拉起打一行分隔，回头翻才知道哪段是哪一轮
+    _logfh.write(
+        f"\n===== worker 启动 {time.strftime('%Y-%m-%d %H:%M:%S')} "
+        f"(后端 pid {os.getpid()}) =====\n".encode("utf-8"))
+    _logfh.flush()
+    # macOS 的 libmalloc 会在每次新建进程时往 stderr 打一行
+    # "MallocStackLogging: can't turn off ..."。env 里带 Malloc* 变量时会触发，
+    # 这里连同子进程一并清掉，还终端一个干净的输出。
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith("Malloc") and not k.startswith("MALLOC")}
     if config.TTS_CKPT:
         env["BCB_TTS_CKPT"] = config.TTS_CKPT
     _proc = subprocess.Popen(
@@ -67,6 +78,35 @@ def ensure_worker() -> int:
         if _proc is not None and _proc.poll() is None and _port:
             return _port
         return _spawn()
+
+
+def reap_stale() -> int:
+    """清掉上一次跑残留的模型进程，返回杀掉的个数。
+
+    后端被强杀时（Ctrl-C 按第二次、kill -9、终端窗口被关），@tts_server.py
+    会变成孤儿继续占着十几 GB。下一次 ./run.sh 又会新拉一个，两个叠着加载，
+    机器会卡到连播放器都动不了。启动前先把上一轮的清干净。
+    """
+    worker = config.ROOT / "worker" / "tts_server.py"
+    try:
+        r = subprocess.run(["pgrep", "-f", str(worker)],
+                           capture_output=True, text=True, timeout=10)
+    except Exception:
+        return 0
+    me = os.getpid()
+    killed = 0
+    for tok in r.stdout.split():
+        if not tok.isdigit():
+            continue
+        pid = int(tok)
+        if pid == me:
+            continue
+        try:
+            os.kill(pid, signal.SIGKILL)
+            killed += 1
+        except Exception:
+            pass
+    return killed
 
 
 def warmup() -> None:
