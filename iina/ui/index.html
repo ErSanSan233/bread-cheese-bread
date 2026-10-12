@@ -229,7 +229,7 @@
           a: st.a, b: st.b, c: st.c,
           text: el("text").value.trim(),
           mode: "sandwich", speed: 1.0,
-          auto_ref: true, unify_loudness: false, qc: true,
+          auto_ref: true, pace: true, unify_loudness: false, qc: true,
         });
       })
       .then(function () {
@@ -247,6 +247,8 @@
                   st.msg = st.result && st.result.out_dir
                     ? "已生成，成品在下方（可直接在访达里打开）"
                     : "已生成，到输出目录查看";
+                  var pc = st.result && st.result.pace;
+                  if (pc && pc.reason) st.msg = "语速对齐：" + pc.reason + "。" + st.msg;
                 } else {
                   st.result = null;
                   st.msg = "出错：" + (j.error || "未知原因");

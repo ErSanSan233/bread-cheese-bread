@@ -322,6 +322,7 @@ $('#btn-gen').onclick = async () => {
     mode: document.querySelector('input[name=mode]:checked').value,
     speed: +$('#speed').value,
     auto_ref: $('#auto-ref').checked,
+    pace: $('#pace').checked,
     unify_loudness: $('#unify').checked,
     qc: $('#qc').checked,
   };

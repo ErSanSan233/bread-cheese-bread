@@ -12,7 +12,7 @@ import traceback
 import uuid
 from pathlib import Path
 
-from . import audio, config, qc, refpick, synth
+from . import audio, config, pace, qc, refpick, synth
 
 _jobs: dict[str, dict] = {}
 _lock = threading.Lock()
@@ -136,7 +136,33 @@ def _run_pipeline(job: dict, req: dict):
     set_status(job, "synth", 0.15, "正在合成旁白（首次需加载模型，约 1~2 分钟）…")
     t0 = time.time()
     nar_raw = gen / "nar_raw.wav"
-    synth.synth(ref_wav, text, nar_raw, speed=speed)
+    want_pace = bool(req.get("pace", True))
+    pace_info: dict = {"enabled": want_pace}
+    if want_pace:
+        # 两遍法：先用原速出一版，测出它跟面包的语速差，再按系数重生成。
+        # duration_factor 在模型里是线性缩放，所以系数一次就能算准。
+        nar_v1 = gen / "nar_raw_v1.wav"
+        synth.synth(ref_wav, text, nar_v1, speed=speed)
+        set_status(job, "pace", 0.42, "正在测量面包语速…")
+        try:
+            ref_rate = pace.measure(ref_wav)
+            nar_rate = pace.measure(nar_v1, text=text)
+            factor, why = pace.suggest_factor(nar_rate, ref_rate)
+            pace_info.update({"ref": ref_rate, "narration_v1": nar_rate,
+                              "factor": factor, "reason": why,
+                              "regenerated": False})
+            if abs(factor - 1.0) >= 0.05:
+                set_status(job, "pace2", 0.46, f"{why}，正在按新语速重生成…")
+                synth.synth(ref_wav, text, nar_raw, speed=speed * factor)
+                pace_info["regenerated"] = True
+            else:
+                shutil.copyfile(nar_v1, nar_raw)
+        except Exception as e:
+            # 测不出来就用第一遍，别为了一个增强项把整条流水线拖挂
+            pace_info["error"] = str(e)
+            shutil.copyfile(nar_v1, nar_raw)
+    else:
+        synth.synth(ref_wav, text, nar_raw, speed=speed)
     synth_sec = time.time() - t0
 
     # 3. 切两片面包
@@ -226,6 +252,7 @@ def _run_pipeline(job: dict, req: dict):
             "unified": unify,
         },
         "qc": qcres,
+        "pace": pace_info,
         "out_duration": round(audio.duration_of(out_wav), 3),
     }
     set_status(job, "done", 1.0, "完成")

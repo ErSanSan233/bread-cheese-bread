@@ -26,6 +26,11 @@ def _norm(s: str) -> str:
     return s
 
 
+# 公开别名：语速统计要跟这里用同一套字数口径，
+# 否则「稿子字数」和「ASR 字数」两边数出来的数不可比。
+normalize = _norm
+
+
 def transcribe(wav: Path, language: str = "zh",
                initial_prompt: str | None = None,
                timeout: int = 900) -> str:
