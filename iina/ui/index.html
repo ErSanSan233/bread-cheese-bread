@@ -106,6 +106,17 @@
   .b2 { position: absolute; top: 0; bottom: 0; background: var(--bread); opacity: .5; }
   .head { position: absolute; top: 0; bottom: 0; width: 1.5px; background: var(--text); }
 
+  .speed {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11px; color: var(--muted);
+  }
+  .speed .label { margin: 0; }
+  .speed input[type=range] { flex: 1; accent-color: var(--accent); }
+  .speed .v {
+    font: 500 12px/1 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--text); min-width: 32px; text-align: right;
+  }
+
   .status {
     margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--border);
     font-size: 11px; color: var(--muted);
@@ -143,6 +154,12 @@
     <textarea id="text" placeholder="写下这段话，它会用片子里自己的声音说出来……"></textarea>
   </div>
 
+  <div class="field speed">
+    <span class="label">语速</span>
+    <input type="range" id="speed" min="0.7" max="1.4" step="0.05" value="1.0">
+    <span class="v" id="speed-v">1.00</span>
+  </div>
+
   <button class="primary" id="btnGen" disabled>合成并插回去</button>
 
   <div class="status"><span class="dot off" id="dot"></span><span id="st">正在连接</span></div>
@@ -171,6 +188,10 @@
     var mm = (h > 0) ? String(m).padStart(2, "0") : String(m);
     return (h > 0 ? h + ":" : "") + mm + ":" + String(x).padStart(2, "0");
   }
+
+  el("speed").oninput = function (e) {
+    el("speed-v").textContent = (+e.target.value).toFixed(2);
+  };
 
   function post(p, body) {
     return fetch(API + p, {
@@ -228,8 +249,8 @@
         return post("/api/job/" + r.id + "/generate", {
           a: st.a, b: st.b, c: st.c,
           text: el("text").value.trim(),
-          mode: "sandwich", speed: 1.0,
-          auto_ref: true, pace: true, unify_loudness: false, qc: true,
+          mode: "sandwich", speed: +el("speed").value || 1.0,
+          auto_ref: true, pace: false, unify_loudness: false, qc: true,
         });
       })
       .then(function () {

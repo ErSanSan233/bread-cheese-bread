@@ -105,7 +105,9 @@ def _run_pipeline(job: dict, req: dict):
     a, b, c = float(req["a"]), float(req["b"]), float(req["c"])
     text = (req.get("text") or "").strip()
     mode = req.get("mode") or "sandwich"
-    speed = float(req.get("speed") or 1.0)
+    # 「语速」是越大越快；模型那边的 duration_factor 是越大越慢。
+    # 两个相反的语义只在这一层换算，不让反向的值一路传到 worker。
+    speed = min(max(float(req.get("speed") or 1.0), 0.5), 2.0)
     auto_ref = bool(req.get("auto_ref", True))
     unify = bool(req.get("unify_loudness", False))
     want_qc = bool(req.get("qc", True))
@@ -136,34 +138,26 @@ def _run_pipeline(job: dict, req: dict):
     set_status(job, "synth", 0.15, "正在合成旁白（首次需加载模型，约 1~2 分钟）…")
     t0 = time.time()
     nar_raw = gen / "nar_raw.wav"
-    want_pace = bool(req.get("pace", True))
+    synth.synth(ref_wav, text, nar_raw, speed=1.0 / speed)
+    synth_sec = time.time() - t0
+
+    # 2b. 可选：只把两边语速测出来写进结果，供手动调滑条时参考。
+    # 不重生成 —— 实测自动对齐后听感没有变好，多跑一遍只是多花一倍时间。
+    want_pace = bool(req.get("pace", False))
     pace_info: dict = {"enabled": want_pace}
     if want_pace:
-        # 两遍法：先用原速出一版，测出它跟面包的语速差，再按系数重生成。
-        # duration_factor 在模型里是线性缩放，所以系数一次就能算准。
-        nar_v1 = gen / "nar_raw_v1.wav"
-        synth.synth(ref_wav, text, nar_v1, speed=speed)
-        set_status(job, "pace", 0.42, "正在测量面包语速…")
+        set_status(job, "pace", 0.5, "正在测量语速…")
         try:
             ref_rate = pace.measure(ref_wav)
-            nar_rate = pace.measure(nar_v1, text=text)
+            nar_rate = pace.measure(nar_raw, text=text)
             factor, why = pace.suggest_factor(nar_rate, ref_rate)
-            pace_info.update({"ref": ref_rate, "narration_v1": nar_rate,
-                              "factor": factor, "reason": why,
-                              "regenerated": False})
-            if abs(factor - 1.0) >= 0.05:
-                set_status(job, "pace2", 0.46, f"{why}，正在按新语速重生成…")
-                synth.synth(ref_wav, text, nar_raw, speed=speed * factor)
-                pace_info["regenerated"] = True
-            else:
-                shutil.copyfile(nar_v1, nar_raw)
+            # factor 是 duration_factor 意义上的倍数（>1 放慢），
+            # 而 speed 是越大越快，所以要除不要乘。
+            pace_info.update({"ref": ref_rate, "narration": nar_rate,
+                              "suggested_speed": round(speed / factor, 3),
+                              "reason": why})
         except Exception as e:
-            # 测不出来就用第一遍，别为了一个增强项把整条流水线拖挂
             pace_info["error"] = str(e)
-            shutil.copyfile(nar_v1, nar_raw)
-    else:
-        synth.synth(ref_wav, text, nar_raw, speed=speed)
-    synth_sec = time.time() - t0
 
     # 3. 切两片面包
     set_status(job, "slice", 0.62, "正在切分原声…")

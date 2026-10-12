@@ -1,14 +1,14 @@
-"""语速对齐：让旁白的语速贴近两片面包。
+"""语速测量：量出旁白与面包的语速差，给手动滑条一个建议值。
 
-为什么需要这一步：界面上那个「语速」值其实是 IndexTTS2 的 duration_factor，
-用户没法知道该给多少才能跟上原片的节奏。这里把面包的实际语速测出来，
-用第一遍合成的结果反推系数，再合成第二遍。
+为什么只测量、不自动重生成：试过两遍法（先合成一版、算系数、再重生成），
+实测对齐到残差 0.1% 之后听感并没有变好，代价是每次多花一倍时间
+（同一份 63 字稿件，合成从 163 秒涨到 622 秒）。自动对齐既然不解决问题，
+就把数测出来交给人，用滑条自己调。
 
-    factor = 旁白语速（duration_factor=1 的首合成） / 面包语速
+    factor = 旁白语速 / 面包语速
 
-factor > 1 表示旁白说得比面包快，要放慢 —— duration_factor 越大越慢。
-因为 IndexTTS2 里 `target_lengths = codes * 1.72 * duration_factor` 是线性的，
-一次就能算准，不需要来回迭代。
+factor 是 duration_factor 意义上的倍数（>1 表示要放慢）；
+界面上的 speed 是越大越快，两者换算时是除不是乘。
 
 ## 用哪个口径算「语速」
 
@@ -25,9 +25,8 @@ factor > 1 表示旁白说得比面包快，要放慢 —— duration_factor 越
 
 ## 边界
 
-- 只对齐平均语速。句内的起伏、哪个词拖长，那一层是 GPT 决定的，这里动不了。
-- 抽样本身有随机性（temperature 0.8），第二遍的 code 数会浮动，实际残差约 3~8%。
-- 太大太小都会失真，钳在 [0.7, 1.6]。
+- 只量得出平均语速。句内的起伏、哪个词拖长，那一层是 GPT 决定的，这里动不了。
+- factor 钳在 [0.7, 1.6]，换算到滑条上就是语速 0.63~1.43 倍。
 """
 from pathlib import Path
 
@@ -89,14 +88,17 @@ def suggest_factor(narration: dict, ref: dict,
     if not a or not b:
         return 1.0, "没测出语速（参考段太短或没有识别结果），沿用原速"
     f = a / b
+    # f > 1：旁白比面包快，要放慢 → 滑条往左；f < 1 反之。
+    # 提示只说往哪边拉，不说重生成 —— 现在不重生成了。
+    pct = abs(f - 1.0) * 100
     if abs(f - 1.0) < 0.05:
         return round(f, 3), (f"旁白 {a} vs 面包 {b} 字/秒（{unit_note}），"
-                             f"已经很接近，不重生成")
-    if f < lo:
-        return lo, (f"旁白比面包慢很多（{a} vs {b} 字/秒，{unit_note}），"
-                    f"理论值 {f:.2f}，先按 {lo} 处理避免失真")
-    if f > hi:
-        return hi, (f"旁白比面包快很多（{a} vs {b} 字/秒，{unit_note}），"
-                    f"理论值 {f:.2f}，先按 {hi} 处理避免失真")
+                             f"已经很接近，保持当前语速即可")
+    if f < lo or f > hi:
+        direction = "往左（放慢）" if f > 1 else "往右（加快）"
+        return min(max(f, lo), hi), (
+            f"旁白 {a} vs 面包 {b} 字/秒（{unit_note}），差 {pct:.0f}%，"
+            f"滑条{direction}；理论值 {f:.2f} 已按 {min(max(f, lo), hi):.2f} 计，再大会失真")
+    direction = "往左（放慢）" if f > 1 else "往右（加快）"
     return round(f, 3), (f"旁白 {a} vs 面包 {b} 字/秒（{unit_note}），"
-                         f"按 {f:.2f} 倍时长重生成")
+                         f"差 {pct:.0f}%，滑条{direction}")

@@ -121,8 +121,8 @@ open -a /Applications/IINA.app <视频文件>
 5. 播放到需要补话的位置按 `Alt+B`
 6. 建议先按「试听」，确认参考语音的语气符合预期
 7. 在输入框写下旁白，点「合成并插回去」
-8. 首次生成需加载模型，约 1~2 分钟；之后每次约 40~60 秒（面板默认开启
-   「语速跟随面包」，要按测量结果重生成一遍，所以是两次）
+8. 首次生成需加载模型，约 1~2 分钟；之后每次约 20~40 秒。
+   想改语速就拖面板上的「语速」滑条（往右更快），改完重新合成一次即可
 9. 完成后面板会显示成品的**完整路径**，点「在访达中显示」可直接在访达里选中它
 
 ---
@@ -314,7 +314,7 @@ J=$(echo "$R" | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
 
 # 2) 触发合成
 curl -s -X POST -H "Content-Type: application/json" \
-  -d '{"a":10,"b":25,"c":60,"text":"要补的旁白","mode":"sandwich","speed":1.0,"auto_ref":true,"pace":true,"unify_loudness":false,"qc":true}' \
+  -d '{"a":10,"b":25,"c":60,"text":"要补的旁白","mode":"sandwich","speed":1.0,"auto_ref":true,"pace":false,"unify_loudness":false,"qc":true}' \
   "http://127.0.0.1:8733/api/job/$J/generate"
 
 # 3) 轮询直到阶段变为 done 或 error

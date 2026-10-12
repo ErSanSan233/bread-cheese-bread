@@ -63,13 +63,13 @@
     <h2>3 · 写旁白</h2>
     <textarea id="text" rows="4" placeholder="输入你想让这段声音说的话。"></textarea>
     <div class="opts">
-      <label>语速 <input type="range" id="speed" min="0.8" max="1.4" step="0.05" value="1.0">
+      <label>语速 <input type="range" id="speed" min="0.7" max="1.4" step="0.05" value="1.0">
         <output id="speed-v">1.00</output></label>
-      <span class="dim">（duration_factor，大于 1 更慢）</span>
+      <span class="dim">（1.00 是模型默认值，往右更快，往左更慢）</span>
     </div>
     <div class="opts">
       <label><input type="checkbox" id="auto-ref" checked> 自动精选参考窗口</label>
-      <label><input type="checkbox" id="pace" checked> 语速跟随面包（多合成一遍）</label>
+      <label><input type="checkbox" id="pace"> 测量两边语速并给出建议值（多十几秒，不重生成）</label>
       <label><input type="checkbox" id="unify"> 整体响度统一到 −16 LUFS</label>
       <label><input type="checkbox" id="qc" checked> 生成后回读质检</label>
     </div>
