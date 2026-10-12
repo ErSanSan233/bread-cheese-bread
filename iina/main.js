@@ -140,6 +140,18 @@ function pushMarks() {
 }
 
 /**
+ * 让面板代显示一句话。
+ *
+ * 关键约束：`iina.http` 的回调跑在 NSURLSession 的后台队列上，
+ * 在这个队列里碰任何播放器 UI（overlay / OSD / sidebar）都会让 IINA 直接
+ * abort —— 崩溃栈是 overlay 首次创建容器时的 addSubview 抛异常。
+ * 因此凡是从 http 回调里发起的动作，反馈一律走后端，由面板渲染。
+ */
+function notify(text, isError) {
+  postSession({ notice: { text: text, is_error: !!isError, at: Date.now() / 1000 } });
+}
+
+/**
  * 面板上的按钮把打点写进会话，快捷键则写在插件本地。
  * 两边可能各自只写了一半（例如点按钮打 A、按快捷键打 C），
  * 所以每轮都以会话为准补进本地 —— 否则本地缺失时试听会误判为「还没打点」。
@@ -162,7 +174,7 @@ function drainPanelCommands() {
     syncMarks(d);
     if (d.want_preview) {
       postSession({ want_preview: false });
-      previewRef();
+      previewRef(true);   // 处于 http 回调内，禁止触碰播放器 UI
     }
     if (d.want_goto !== undefined && d.want_goto !== null) {
       const t = d.want_goto;
@@ -214,18 +226,28 @@ function clearMarks() {
   flash("已清空打点");
 }
 
-/** 播放 A→C，让用户亲耳确认旁白会照这段的语气来。 */
-function previewRef() {
+/**
+ * 播放 A→C，让用户亲耳确认旁白会照这段的语气来。
+ *
+ * quiet 为 true 表示这次调用发生在 http 回调里（面板下的指令），
+ * 此时不能碰播放器 UI，反馈改用 notify 交给面板。
+ */
+function previewRef(quiet) {
+  const say = quiet
+    ? notify
+    : function (t, e) {
+        flash(t, e);
+      };
   if (marks.a === null || marks.c === null) {
-    flash("先打上 A 和 C", true);
+    say("先打上 A 和 C", true);
     return;
   }
   try {
     iina.mpv.set("time-pos", marks.a);
     iina.core.resume();
-    flash("正在播放 A→C，这就是参考语音");
+    say(quiet ? "正在播放 A→C" : "正在播放 A→C，这就是参考语音", false);
   } catch (e) {
-    flash("跳转失败：" + e, true);
+    say("跳转失败：" + e, true);
   }
 }
 
@@ -299,7 +321,7 @@ const MENU = [
   ["标记 B（插入点）", function () { setMark("b"); }, "Alt+b"],
   ["标记 C（面包终点）", function () { setMark("c"); }, "Alt+s"],
   ["清空打点", function () { clearMarks(); }, null],
-  ["试听 A→C（旁白就照这段的语气来）", previewRef, "Alt+p"],
+  ["试听 A→C（旁白就照这段的语气来）", function () { previewRef(false); }, "Alt+p"],
 ];
 
 // 关键点：播放器窗口就绪之前 sidebar 不可用，过早调用会抛

@@ -283,7 +283,9 @@ curl -s http://127.0.0.1:8733/api/session | python3 -c "import sys,json;d=json.l
 ```
 
 **通过**：`want_preview` 回落到 `false`（指令已被插件取走），
-`pos` 落在 A 点附近，且播放器开始播放。
+`pos` 落在 A 点附近，且播放器开始播放，**IINA 不崩溃**（见下方第四个坑）。
+面板底部此时会显示「正在播放 A→C」这一句 —— 它来自会话的 `notice` 字段，
+因为插件在这个路径上不能自己弹提示。
 
 ### T10 · 完整生成链路
 
@@ -364,6 +366,12 @@ git status --short --ignored
 `OPTIONS … 405`，打点静默失效。已在后端挂 `CORSMiddleware`（`server/main.py`），
 复测 `OPTIONS /api/session` 返回 `200`，跨源 POST 落库正常。
 
+同日再追加：打点正常，但点面板的「试听」时 **IINA 崩溃**（SIGABRT）。
+崩溃栈显示插件在 `iina.http` 的回调里调用了 `overlay.simpleMode()`，
+而该回调位于 `NSURLSession-delegate` 后台队列，AppKit 不在主线程即 abort。
+已把 http 回调路径上的提示改为写进会话 `notice`、由面板渲染；
+后端 `SESSION` 新增 `notice` 字段。
+
 ---
 
 ## 已知限制
@@ -389,11 +397,12 @@ git status --short --ignored
 | 快捷键无反应 | 与系统或其他应用的快捷键冲突时，逐个在 `main.js` 的 `MENU` 中改用其他组合 |
 | 后端返回 500 | 查看运行 `./run.sh` 的终端输出，接口处的 traceback 会指出具体行号 |
 | 日志刷 `OPTIONS /api/session 405` | 面板的跨源预检被拒，POST 实际未发出。确认 `server/main.py` 已挂 `CORSMiddleware`，并**重启后端**；面板页面也需重新加载 |
+| 点「试听」IINA 直接崩溃 | 插件在 `iina.http` 回调里碰了播放器 UI。检查崩溃栈是否含 `JavascriptAPIOverlay` 或 `pluginOverlayViewContainer`；该回调内只能做数据操作，提示要走会话的 `notice` 字段 |
 | 修改了 `iina/` 但行为未变 | 重新执行 `./iina/install.sh`，并完全退出 IINA 后重启 |
 
-### 开发期的三个致命坑
+### 开发期的四个致命坑
 
-排查上述问题前，先排除以下三项，都表现为「静默失效」：
+排查上述问题前，先排除以下四项，前三项表现为「静默失效」，第四项会直接崩溃：
 
 1. **`sidebar.loadFile` 必须晚于播放器窗口就绪**。提前调用会抛出
    `sidebar.loadFile called when window is not available`，
@@ -410,3 +419,20 @@ git status --short --ignored
    界面看起来「连上了、有数据」，极具迷惑性。
    修法在 `server/main.py` 挂载 `CORSMiddleware`（放开来源与方法即可，
    服务只监听回环地址）。放行后日志里的 `OPTIONS /api/session` 应为 `200 OK`。
+4. **`iina.http` 的回调跑在后台队列，里面绝不能碰播放器 UI。**
+   `get/post` 的回调线程是 `com.apple.NSURLSession-delegate`（非主线程），
+   在这个线程里调用 `iina.overlay.*` 或 `iina.core.osd()` 会让 IINA **直接 abort**。
+   实测崩溃栈：
+
+   ```
+   closure in JavascriptAPIHttp.request(_:url:options:)
+     → JavascriptAPIOverlay.simpleMode()
+     → MainWindowController.pluginOverlayViewContainer.getter
+     → [NSView addSubview:positioned:relativeTo:]   ← NSISEngine 抛异常 → abort()
+   ```
+
+   首次调用 `overlay.simpleMode()` 才会崩（只有首次需要 `addSubview` 创建容器），
+   所以现象是「前面几次还好好的，某一步突然崩」，极具迷惑性。
+   菜单项与快捷键的回调在主线程，可以放心用 UI。
+   **凡从 http 回调发起的动作，反馈一律写进会话的 `notice` 字段，由面板渲染。**
+   IINA 未提供任何把代码派发回主线程的方法，也没有这类标注。

@@ -153,7 +153,7 @@
   var API = "http://127.0.0.1:8733";
   var st = {
     pos: 0, dur: 0, file: "", path: "", a: null, b: null, c: null,
-    backend: false, job: null, msg: "",
+    backend: false, job: null, msg: "", notice: null,
   };
 
   function fmt(s) {
@@ -184,6 +184,9 @@
         st.file = d.name || d.path || "";
         st.path = d.path || "";
         if (d.marks) { st.a = d.marks.a; st.b = d.marks.b; st.c = d.marks.c; }
+        // 插件不能在自己的 http 回调里弹提示（后台线程碰 AppKit 会让播放器 abort），
+        // 这类提示寄存在会话里，由面板代显示。6 秒后自动不再显示。
+        st.notice = (d.notice && Date.now() / 1000 - d.notice.at < 6) ? d.notice : null;
         paint();
       })
       .catch(function () { st.backend = false; paint(); });
@@ -279,8 +282,14 @@
                 el("text").value.trim().length > 0 && !st.job;
     el("btnGen").disabled = !ready;
     el("dot").className = "dot " + (st.backend ? "on" : "off");
-    el("st").textContent = st.msg ||
-      (st.backend ? "已连接本机服务" : "未连到本机服务（先跑 ./run.sh）");
+    if (st.notice) {
+      el("st").textContent = st.notice.text;
+      el("st").style.color = st.notice.is_error ? "var(--bad)" : "";
+    } else {
+      el("st").textContent = st.msg ||
+        (st.backend ? "已连接本机服务" : "未连到本机服务（先跑 ./run.sh）");
+      el("st").style.color = "";
+    }
   }
 
   document.querySelectorAll("[data-set]").forEach(function (b) {
