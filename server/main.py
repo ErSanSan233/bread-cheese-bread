@@ -13,12 +13,26 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, Response
+from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import StreamingResponse
 
 from . import config, jobs, synth
 
 config.ensure_dirs()
 app = FastAPI(title="两面包夹芝士")
+
+# 播放器插件里的面板不是从本服务加载的（IINA 的侧边栏走 file:// 一类的私有源），
+# 它向 127.0.0.1 发带 Content-Type: application/json 的 POST 属于跨源请求，
+# 浏览器会先发一个 OPTIONS 预检。没有这段时预检落到路由上就是 405，
+# 真正的 POST 会被浏览器直接拦掉 —— 面板的打点/试听会静默失效。
+# 本机服务，只监听回环地址，这里放开全部来源与方法即可。
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+    max_age=86400,
+)
 
 RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)")
 

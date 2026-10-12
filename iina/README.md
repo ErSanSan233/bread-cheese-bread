@@ -256,6 +256,17 @@ curl -s http://127.0.0.1:8733/api/session | python3 -c "import sys,json;print(js
 
 **通过**：返回 `{"a":…, "b":…, "c":…}`，三个均有数值且 `a < b < c`。
 
+面板按钮走的是浏览器，会先发跨源预检，需一并确认预检本身放行：
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" -X OPTIONS http://127.0.0.1:8733/api/session \
+  -H "Origin: null" \
+  -H "Access-Control-Request-Method: POST" \
+  -H "Access-Control-Request-Headers: content-type"
+```
+
+**通过**：输出 `200`（出现 `405` 即表示 POST 会被浏览器拦掉，界面却仍显示有数据）。
+
 ### T8 · 越界校验
 
 把播放头拖到 A 之前按 `Alt+B`。
@@ -349,6 +360,10 @@ git status --short --ignored
 | 响度对齐 | 旁白原始 −23.17 LUFS → 对齐至面包 −23.46 LUFS，未整体压缩成品 |
 | 回读质检 | 相似度 100%，回读文本与稿子逐字相符 |
 
+2026-10-12 追加：面板按钮写入 `/api/session` 时日志持续刷
+`OPTIONS … 405`，打点静默失效。已在后端挂 `CORSMiddleware`（`server/main.py`），
+复测 `OPTIONS /api/session` 返回 `200`，跨源 POST 落库正常。
+
 ---
 
 ## 已知限制
@@ -373,11 +388,12 @@ git status --short --ignored
 | 面板显示「未连到本机服务」 | 后端未启动，或 8733 端口被占用：`lsof -nP -iTCP:8733` |
 | 快捷键无反应 | 与系统或其他应用的快捷键冲突时，逐个在 `main.js` 的 `MENU` 中改用其他组合 |
 | 后端返回 500 | 查看运行 `./run.sh` 的终端输出，接口处的 traceback 会指出具体行号 |
+| 日志刷 `OPTIONS /api/session 405` | 面板的跨源预检被拒，POST 实际未发出。确认 `server/main.py` 已挂 `CORSMiddleware`，并**重启后端**；面板页面也需重新加载 |
 | 修改了 `iina/` 但行为未变 | 重新执行 `./iina/install.sh`，并完全退出 IINA 后重启 |
 
-### 开发期的两个致命坑
+### 开发期的三个致命坑
 
-排查上述问题前，先排除以下两项，二者都表现为「静默失效」：
+排查上述问题前，先排除以下三项，都表现为「静默失效」：
 
 1. **`sidebar.loadFile` 必须晚于播放器窗口就绪**。提前调用会抛出
    `sidebar.loadFile called when window is not available`，
@@ -385,3 +401,12 @@ git status --short --ignored
 2. **`iina.http.post` 的签名只有两个参数**：`post(url, { data, headers })`，返回 Promise。
    写成旧式的 `post(url, {}, data, cb, cb)` 时请求体为空，
    后端解析空体会得到 500，且日志不提示真实原因。
+3. **面板页面与后端不同源，POST 会先被浏览器预检**。面板的加载源
+   与 `http://127.0.0.1:8733` 不同源（IINA 的侧边栏走私有协议），
+   带 `Content-Type: application/json` 的 POST 属于跨源请求，浏览器会先发 `OPTIONS`。
+   后端没有 CORS 中间件时，
+   预检落到路由上就是 `405 Method Not Allowed`，真正的 POST 根本不会发出，
+   于是打点、试听、写稿全部无声失败 —— 而 `GET` 是简单请求不受影响，
+   界面看起来「连上了、有数据」，极具迷惑性。
+   修法在 `server/main.py` 挂载 `CORSMiddleware`（放开来源与方法即可，
+   服务只监听回环地址）。放行后日志里的 `OPTIONS /api/session` 应为 `200 OK`。
