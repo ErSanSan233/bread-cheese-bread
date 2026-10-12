@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 import urllib.parse
 from pathlib import Path
@@ -293,6 +294,31 @@ async def generate(job_id: str, req: Request):
     body = await req.json()
     jobs.start_generate(job, body)
     return {"ok": True}
+
+
+@app.post("/api/reveal")
+async def reveal(req: Request):
+    """在访达里显示成品所在目录（macOS）。面板给的是绝对路径。"""
+    body = await _read_body(req)
+    raw = str(body.get("path") or "")
+    if not raw:
+        raise HTTPException(400, "缺少 path")
+    try:
+        target = Path(raw).resolve()
+    except Exception:
+        raise HTTPException(400, "路径无效")
+    root = config.WORK.resolve()
+    if target != root and not str(target).startswith(str(root) + os.sep):
+        raise HTTPException(400, "只允许打开输出目录内的路径")
+    if not target.exists():
+        raise HTTPException(404, "路径不存在")
+    # 传文件时用 -R 直接选中它，传目录时打开目录本身
+    args = ["open", "-R", str(target)] if target.is_file() else ["open", str(target)]
+    try:
+        subprocess.run(args, check=False, timeout=10)
+    except FileNotFoundError:
+        raise HTTPException(501, "当前系统没有 open 命令（本接口仅支持 macOS）")
+    return {"ok": True, "path": str(target)}
 
 
 @app.get("/media/{job_id}/{rest:path}")

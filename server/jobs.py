@@ -203,6 +203,10 @@ def _run_pipeline(job: dict, req: dict):
             qcres = {"error": str(e)}
 
     result = {
+        # 面板要显示「成品在哪」，给的是本机绝对路径（只在回环接口里出现）
+        "out_dir": str(gen),
+        "out_wav": str(out_wav),
+        "out_mp3": str(out_mp3) if out_mp3 else None,
         "wav": f"/media/{job['id']}/gen/{out_wav.name}" if out_wav.exists() else None,
         "mp3": f"/media/{job['id']}/gen/{out_mp3.name}" if out_mp3 and out_mp3.exists() else None,
         "narration": f"/media/{job['id']}/gen/{nar_wav.name}",

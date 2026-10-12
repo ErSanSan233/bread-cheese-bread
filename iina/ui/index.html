@@ -147,13 +147,21 @@
 
   <div class="status"><span class="dot off" id="dot"></span><span id="st">正在连接</span></div>
 
+  <!-- 生成完成后展开：给出成品的真实路径，并能直接在访达里选中 -->
+  <div id="outBox" style="display:none;margin-top:8px;padding:8px 10px;
+       border:1px solid var(--border);border-radius:8px;background:var(--surface)">
+    <div id="outPath" style="font-size:11px;line-height:1.5;word-break:break-all;
+         color:var(--muted);margin-bottom:6px"></div>
+    <button id="btnReveal" style="font-size:12px;padding:4px 10px">在访达中显示</button>
+  </div>
+
 <script>
 (function () {
   var el = function (id) { return document.getElementById(id); };
   var API = "http://127.0.0.1:8733";
   var st = {
     pos: 0, dur: 0, file: "", path: "", a: null, b: null, c: null,
-    backend: false, job: null, msg: "", notice: null,
+    backend: false, job: null, msg: "", notice: null, result: null,
   };
 
   function fmt(s) {
@@ -207,6 +215,7 @@
   function run() {
     if (!st.path) { st.msg = "先在播放器里打开一个文件"; paint(); return; }
     el("btnGen").disabled = true;
+    st.result = null;
     st.msg = "正在读取素材…";
     paint();
 
@@ -233,9 +242,15 @@
               if (j.stage === "done" || j.stage === "error") {
                 clearInterval(tick);
                 st.job = null;
-                st.msg = j.stage === "done"
-                  ? "已生成，到输出目录查看"
-                  : "出错：" + (j.error || "未知原因");
+                if (j.stage === "done") {
+                  st.result = j.result || null;
+                  st.msg = st.result && st.result.out_dir
+                    ? "已生成，成品在下方（可直接在访达里打开）"
+                    : "已生成，到输出目录查看";
+                } else {
+                  st.result = null;
+                  st.msg = "出错：" + (j.error || "未知原因");
+                }
                 paint();
               }
             })
@@ -282,6 +297,10 @@
                 el("text").value.trim().length > 0 && !st.job;
     el("btnGen").disabled = !ready;
     el("dot").className = "dot " + (st.backend ? "on" : "off");
+
+    var out = (st.result && st.result.out_dir) ? st.result.out_dir : "";
+    el("outBox").style.display = out ? "block" : "none";
+    if (out) el("outPath").textContent = out;
     if (st.notice) {
       el("st").textContent = st.notice.text;
       el("st").style.color = st.notice.is_error ? "var(--bad)" : "";
@@ -311,6 +330,11 @@
   });
   el("text").addEventListener("input", paint);
   el("btnGen").addEventListener("click", run);
+  el("btnReveal").addEventListener("click", function () {
+    var p = st.result && (st.result.out_wav || st.result.out_dir);
+    if (!p) return;
+    post("/api/reveal", { path: p });
+  });
 
   paint();
 })();
