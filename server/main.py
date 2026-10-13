@@ -136,6 +136,8 @@ SESSION: dict = {
     # 以下两个是面板给插件下的指令，插件轮询取走后清零
     "want_preview": False,   # 试听 A→C
     "want_goto": None,       # 跳到指定秒
+    # 键盘焦点停在侧栏网页里时，空格到不了播放器，由面板代为转发一次暂停
+    "want_pause_toggle": False,
     # 插件想让面板代显示的一句话。插件不能在自己的 http 回调里操作播放器 UI
     # （那个回调跑在 NSURLSession 的后台队列，碰 AppKit 会直接 abort），
     # 所以这类提示改由面板渲染。
@@ -177,7 +179,7 @@ async def session_post(req: Request):
     if not isinstance(body, dict):
         body = {}
     for key in ("path", "name", "pos", "dur", "marks", "text", "alive",
-                "want_preview", "want_goto", "notice"):
+                "want_preview", "want_goto", "want_pause_toggle", "notice"):
         if key not in body:
             continue
         if key == "marks" and isinstance(body["marks"], dict):

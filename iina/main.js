@@ -17,6 +17,9 @@ const panel = iina.sidebar;
 let marks = { a: null, b: null, c: null };
 let overlayTimer = null;
 let gotUiReady = false;
+let windowReady = false;
+let panelLoaded = false;
+let panelShown = false;
 
 function toPath(url) {
   if (!url) return null;
@@ -168,21 +171,51 @@ function syncMarks(session) {
   });
 }
 
-/** 面板已经自己把稿子送上去了，这里把面板下的指令捞回来执行。 */
+/**
+ * 面板已经自己把稿子送上去了，这里把面板下的指令捞回来执行。
+ *
+ * 每条指令都加了最小间隔：清零指令的那次 POST 可能没送达（后端没起来、
+ * 或者请求丢了），那样同一条指令会在下一轮又被读成「还没执行」，
+ * 变成每 800 毫秒跳一次、播一次的鬼畜循环。
+ */
+const cmdAt = { preview: 0, goto: 0, toggle: 0 };
+const CMD_GAP_MS = { preview: 2500, goto: 800, toggle: 350 };
+
+function onceInAWhile(kind) {
+  const now = Date.now();
+  if (now - cmdAt[kind] < CMD_GAP_MS[kind]) return false;
+  cmdAt[kind] = now;
+  return true;
+}
+
 function drainPanelCommands() {
   getSession(function (d) {
     syncMarks(d);
+    if (d.want_pause_toggle) {
+      postSession({ want_pause_toggle: false });
+      if (onceInAWhile("toggle")) {
+        // 焦点还在面板里时，空格到不了播放器，这里替它按一下
+        try {
+          if (iina.core.status.paused) iina.core.resume();
+          else iina.core.pause();
+        } catch (e) {
+          /* 忽略 */
+        }
+      }
+    }
     if (d.want_preview) {
       postSession({ want_preview: false });
-      previewRef(true);   // 处于 http 回调内，禁止触碰播放器 UI
+      if (onceInAWhile("preview")) previewRef(true);   // 处于 http 回调内，禁止触碰播放器 UI
     }
     if (d.want_goto !== undefined && d.want_goto !== null) {
       const t = d.want_goto;
       postSession({ want_goto: null });
-      try {
-        iina.mpv.set("time-pos", t);
-      } catch (e) {
-        /* 忽略 */
+      if (onceInAWhile("goto")) {
+        try {
+          iina.mpv.set("time-pos", t);
+        } catch (e) {
+          /* 忽略 */
+        }
       }
     }
   });
@@ -251,6 +284,46 @@ function previewRef(quiet) {
   }
 }
 
+/* ---------- 面板的显示与焦点 ---------- */
+
+/**
+ * 侧栏是一个 WKWebView。它一旦拿到 first responder，空格这类不带修饰键的按键
+ * 就落进网页里（网页拿它当滚动），播放器的 keyDown 收不到，表现就是
+ * 「敲空格没反应」。带 Alt / Cmd 的菜单快捷键走 main menu，不受影响 ——
+ * 这个差别正好可以用来判断是不是焦点问题。
+ *
+ * IINA 只在窗口重新变成 key window 时把焦点收回去（MainWindowController 的
+ * windowDidBecomeKey 里 makeFirstResponder(window)），所以焦点进了 webview
+ * 之后，只能靠切走再切回、或者点一下画面来救。
+ *
+ * 因此这里的原则是：面板不主动弹出来（少一个抢焦点的东西，也不挡画面），
+ * 由用户按 Alt+C 或点侧栏标签唤起；另外留一个兜底 —— 焦点确实停在面板里
+ * （但不在输入框）时，空格仍然转发给播放器。
+ */
+function ensurePanel() {
+  if (!windowReady) {
+    flash("播放器窗口还没就绪，稍等一下", true);
+    return;
+  }
+  if (!panelLoaded) {
+    try {
+      panel.loadFile("ui/index.html");
+      panelLoaded = true;
+    } catch (e) {
+      flash("面板加载失败：" + e, true);
+      return;
+    }
+  }
+  try {
+    panel.show();
+    panelShown = true;
+  } catch (e) {
+    /* 忽略 */
+  }
+  pushState();
+  pushMarks();
+}
+
 /* ---------- 网页消息（若本机环境注入了桥则会生效，作为加强项） ---------- */
 
 panel.onMessage("ui-ready", function () {
@@ -316,7 +389,7 @@ function step(name, fn) {
 }
 
 const MENU = [
-  ["打开夹芝士面板", function () { panel.show(); pushState(); }, "Alt+c"],
+  ["打开夹芝士面板", function () { ensurePanel(); }, "Alt+c"],
   ["标记 A（面包起点）", function () { setMark("a"); }, "Alt+a"],
   ["标记 B（插入点）", function () { setMark("b"); }, "Alt+b"],
   ["标记 C（面包终点）", function () { setMark("c"); }, "Alt+s"],
@@ -329,9 +402,13 @@ const MENU = [
 // 必须挂到 iina.window-loaded 之后再动它；菜单项不受此限制，可以直接注册。
 step("挂载 iina.window-loaded", function () {
   iina.event.on("iina.window-loaded", function () {
-    step("sidebar.loadFile", function () { panel.loadFile("ui/index.html"); });
-    step("sidebar.show", function () { panel.show(); });
-    step("推送初始状态", function () { pushState(); pushMarks(); });
+    windowReady = true;
+    // 预加载页面，这样点侧栏标签时立刻有内容。但不 show —— 侧栏自己弹出来
+    // 既挡画面，又是把一个 WKWebView 摆到能抢走键盘焦点的位置上。
+    step("sidebar.loadFile", function () {
+      panel.loadFile("ui/index.html");
+      panelLoaded = true;
+    });
   });
 });
 
@@ -343,6 +420,9 @@ MENU.forEach(function (m) {
 
 step("周期上报与取指令", function () {
   setInterval(function () {
+    // 面板从没显示过就什么都不做：既没有人在看，也不该为一个没打开的界面
+    // 每 800 毫秒打一轮网络请求
+    if (!panelShown) return;
     pushState();
     drainPanelCommands();
   }, 800);

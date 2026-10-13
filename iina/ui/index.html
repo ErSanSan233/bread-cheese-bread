@@ -201,6 +201,34 @@
     }).then(function (r) { return r.json(); });
   }
 
+  /*
+   * 焦点。这块面板是播放器侧栏里的一个 WKWebView：它拿到 first responder 之后，
+   * 空格就落进网页而不是播放器，表现是「敲空格没反应」。IINA 只在窗口重新变成
+   * key window 时把焦点收回去，所以这里自己留两条退路 ——
+   * Esc 或点面板空白处就交出焦点；焦点还停在面板里（但不在输入框）时，
+   * 空格转发给播放器去暂停。
+   */
+  function isTyping() {
+    var a = document.activeElement;
+    return !!a && (a.tagName === "TEXTAREA" || a.tagName === "INPUT");
+  }
+  function handBackFocus() {
+    var a = document.activeElement;
+    if (a && a.blur) a.blur();
+  }
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") { handBackFocus(); return; }
+    if (e.key === " " && !isTyping()) {
+      e.preventDefault();          // 别让网页把这一下当成滚动
+      post("/api/session", { want_pause_toggle: true }).catch(function () {});
+    }
+  });
+  document.addEventListener("mousedown", function (e) {
+    if (isTyping() && e.target && !e.target.closest("input, textarea, button, a, select")) {
+      handBackFocus();
+    }
+  });
+
   // 播放器插件与本面板之间没有可用的消息桥（已在本机 IINA 1.5.0 上验证），
   // 但两者都能访问本机后端：插件把播放状态写进 session，面板到这里取。
   function poll() {
