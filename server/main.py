@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import StreamingResponse
 
-from . import config, jobs, synth
+from . import audio, config, jobs, synth
 
 config.ensure_dirs()
 app = FastAPI(title="两面包夹芝士")
@@ -252,6 +252,44 @@ def job_state(job_id: str):
         raise HTTPException(404, "任务不存在")
     return {"id": job["id"], "name": job["name"], "stem": job["stem"],
             "info": job.get("info", {}), **job["status"]}
+
+
+# 微调打点用的高倍波形。拖动时会在同一段里来回挪，缓存几份就够，
+# 不必每次都让 ffmpeg 重新解码。
+_PEAK_CACHE: dict = {}
+
+
+@app.get("/api/peaks")
+def peaks(path: str = "", center: float = 0.0, span: float = 24.0,
+          res: float = 0.0):
+    """给面板的三条微调轨道供波形：只解 center 附近的一小段，格宽固定。
+
+    整轨压成几千格的做法放大到秒级以下就糊了，而打点要挪到某个字的前面，
+    所以需要「只解窗口、固定毫秒级格宽」这一路。
+    """
+    src = Path(str(path or "")).expanduser()
+    if not src.is_file():
+        raise HTTPException(404, f"文件不存在：{src}")
+    span = min(max(float(span or 24.0), 0.5), 60.0)
+    # 格数封顶，避免长窗口把响应撑爆：格宽随窗口自动变粗
+    res = float(res or 0.0) or max(0.004, span / 4000.0)
+    center = max(0.0, float(center or 0.0))
+    t0 = max(0.0, center - span / 2)
+
+    # 按 2 秒对齐做缓存键：拖动通常在这一段内来回，命中率够高
+    key = (str(src), round(t0 / 2.0), round(span, 2), round(res, 5))
+    hit = _PEAK_CACHE.get(key)
+    if hit is not None:
+        return {"ok": True, "cached": True, **hit}
+    try:
+        data = audio.window_peaks(src, t0, span, res)
+    except Exception as e:
+        raise HTTPException(400, f"取波形失败：{e}")
+    out = {"t0": t0, "span": span, "res": res, "peaks": data}
+    if len(_PEAK_CACHE) > 48:
+        _PEAK_CACHE.clear()
+    _PEAK_CACHE[key] = out
+    return {"ok": True, "cached": False, **out}
 
 
 @app.get("/api/job/{job_id}/waveform")

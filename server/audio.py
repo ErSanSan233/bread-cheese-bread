@@ -6,6 +6,7 @@
   这样插回原视频时原始段落的电平不会被改动。
 """
 import json
+import math
 import re
 import shlex
 import subprocess
@@ -113,6 +114,39 @@ def waveform_peaks(path: Path, n: int = config.WAVE_PEAKS) -> list[float]:
     out = np.empty(n, dtype=np.float32)
     for i in range(n):
         seg = np.abs(x[idx[i]:idx_end[i]])
+        out[i] = seg.max() if seg.size else 0.0
+    mx = float(out.max()) or 1.0
+    return [round(float(v / mx), 4) for v in out]
+
+
+def window_peaks(path: Path, t0: float, span: float, res: float = 0.005,
+                 rate: int = 16000) -> list[float]:
+    """取 [t0, t0+span) 这一段、按 res 秒一格的高分辨率波形。
+
+    与 waveform_peaks 的区别：那个是整轨压成固定格数，放大到秒级以下就糊了；
+    这个只解一小段，格宽固定（默认 5 毫秒），专门给「把打点挪到某个字前面」
+    这种微调用。只解窗口内的音频，长片也不慢。
+    """
+    if span <= 0 or res <= 0:
+        return []
+    start = max(0.0, t0)
+    # -ss 放在 -i 前（快），-t 限定长度。两者都是输入侧参数，
+    # 因此解码出来的第 0 个样本就对应 start 这个时刻。
+    cmd = [config.FFMPEG, "-hide_banner", "-v", "error",
+           "-ss", f"{start:.6f}", "-t", f"{span:.6f}",
+           "-i", str(path), "-vn", "-ac", "1", "-ar", str(rate),
+           "-f", "f32le", "-c:a", "pcm_f32le", "-"]
+    r = subprocess.run(cmd, capture_output=True, timeout=120)
+    if r.returncode != 0:
+        raise AudioError(f"解码失败: {r.stderr.decode(errors='ignore')[-600:]}")
+    x = np.frombuffer(r.stdout, dtype="<f4").astype(np.float32)
+    if x.size == 0:
+        return []
+    per = max(1, int(round(res * rate)))
+    n = int(math.ceil(x.size / per))
+    out = np.empty(n, dtype=np.float32)
+    for i in range(n):
+        seg = np.abs(x[i * per:(i + 1) * per])
         out[i] = seg.max() if seg.size else 0.0
     mx = float(out.max()) or 1.0
     return [round(float(v / mx), 4) for v in out]

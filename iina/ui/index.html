@@ -93,6 +93,38 @@
   .mark[data-role="A"] .v, .mark[data-role="C"] .v { color: var(--bread); }
   .mark[data-role="B"] .v { color: var(--cheese); }
 
+  /* 三条微调轨道：同一段波形画三遍，各自以自己的打点为中心。
+     中间那条固定的竖线才是打点的位置 —— 左右拖波形，就是把这个点挪到别处。 */
+  .lanes { margin-bottom: 8px; }
+  .lane { margin-bottom: 7px; }
+  .laneHead {
+    display: flex; align-items: baseline; gap: 6px;
+    font-size: 10px; color: var(--muted); margin-bottom: 3px;
+  }
+  .laneHead .k { font-weight: 600; font-size: 11px; }
+  .laneHead .v {
+    font: 500 12px/1 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--text);
+  }
+  .laneHead .hint { margin-left: auto; opacity: .8; }
+  .lane[data-role="A"] .k, .lane[data-role="C"] .k { color: var(--bread); }
+  .lane[data-role="B"] .k { color: var(--cheese); }
+  .lane canvas {
+    display: block; width: 100%; height: 46px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 5px; cursor: ew-resize; touch-action: none;
+  }
+  .zoom {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11px; color: var(--muted); margin-bottom: 10px;
+  }
+  .zoom .label { margin: 0; }
+  .zoom input[type=range] { flex: 1; accent-color: var(--accent); }
+  .zoom .v {
+    font: 500 11px/1 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--text); min-width: 46px; text-align: right;
+  }
+
   .row { display: flex; gap: 6px; margin-bottom: 10px; }
   .row button { flex: 1; }
 
@@ -144,6 +176,27 @@
     <div class="mark" id="mC" data-role="C"><span class="k">C 面包终</span><span class="v">--</span><button class="tiny" data-set="C">打点</button></div>
   </div>
 
+  <div class="lanes">
+    <div class="lane" data-role="A">
+      <div class="laneHead"><span class="k">A 面包起</span><span class="v" id="lvA">未打点</span><span class="hint">拖波形微调</span></div>
+      <canvas id="lcA"></canvas>
+    </div>
+    <div class="lane" data-role="B">
+      <div class="laneHead"><span class="k">B 插入点</span><span class="v" id="lvB">未打点</span><span class="hint">拖波形微调</span></div>
+      <canvas id="lcB"></canvas>
+    </div>
+    <div class="lane" data-role="C">
+      <div class="laneHead"><span class="k">C 面包终</span><span class="v" id="lvC">未打点</span><span class="hint">拖波形微调</span></div>
+      <canvas id="lcC"></canvas>
+    </div>
+  </div>
+
+  <div class="zoom">
+    <span class="label">波形宽度</span>
+    <input type="range" id="zoom" min="0" max="5" step="1" value="2">
+    <span class="v" id="zoom-v">±1.00s</span>
+  </div>
+
   <div class="row">
     <button id="btnPrev">试听 Alt+P</button>
     <button id="btnReset">清空</button>
@@ -189,6 +242,12 @@
     return (h > 0 ? h + ":" : "") + mm + ":" + String(x).padStart(2, "0");
   }
 
+  // 打点要能落在毫秒上，只显示到秒就没法判断自己打在哪儿
+  function fmtMs(s) {
+    if (s === null || s === undefined || isNaN(s)) return "--";
+    return fmt(s) + "." + String(Math.floor((s % 1) * 1000)).padStart(3, "0");
+  }
+
   el("speed").oninput = function (e) {
     el("speed-v").textContent = (+e.target.value).toFixed(2);
   };
@@ -220,8 +279,10 @@
   // 面板 → 插件。桥不通时，这些指令改写成旧的会话字段，让插件轮询取走
   var LEGACY = {
     setMark: function (d) { var p = {}; p[d.role] = d.t; return { marks: p }; },
+    setMarkAt: function (d) { var p = {}; p[d.role] = d.t; return { marks: p }; },
     clearMarks: function () { return { marks: { a: null, b: null, c: null } }; },
     preview: function () { return { want_preview: true }; },
+    goto: function (d) { return { want_goto: d.t }; },
     toggle: function () { return { want_pause_toggle: true }; },
   };
 
@@ -235,8 +296,13 @@
     gotState = true;
     if (d.pos !== undefined) st.pos = d.pos;
     if (d.dur !== undefined) st.dur = d.dur;
-    if (d.name || d.path) { st.file = d.name || d.path; st.path = d.path || ""; }
-    if (d.marks) { st.a = d.marks.a; st.b = d.marks.b; st.c = d.marks.c; }
+    if (d.name || d.path) {
+      if (d.path && d.path !== st.path) PEAKS = { a: null, b: null, c: null };
+      st.file = d.name || d.path; st.path = d.path || "";
+    }
+    // 拖动期间不能让插件推来的 marks 覆盖本地 —— 插件那边的打点要到松手才更新，
+    // 它每轮推的还是旧值，照单全收的话拖到一半会被打回去
+    if (d.marks && !dragging) { st.a = d.marks.a; st.b = d.marks.b; st.c = d.marks.c; }
     paint();
   }
 
@@ -381,6 +447,174 @@
       });
   }
 
+  /* ---------- 三条微调轨道 ----------
+   *
+   * 三个点各占一条轨道，各自以自己的打点为中心画同一段波形。
+   * 中间那条固定的竖线才是打点的位置：把波形往右拖，等于让竖线指向更早的内容，
+   * 也就是把打点往前挪。
+   *
+   * 波形不是整轨压成的粗粒度概览 —— 那样放大到秒级以下就糊了。这里只向后端
+   * 要「打点附近一小段、固定毫秒级格宽」的波形，长片也一样快。
+   */
+
+  var HALVES = [0.25, 0.5, 1, 2, 4, 8];    // 轨道可见的半窗口（秒）
+  var halfIdx = 2;
+  var PEAKS = { a: null, b: null, c: null };
+  var pending = { a: false, b: false, c: false };
+  var dragging = null;
+  var CSSV = {};
+  var LANE_H = 46;
+
+  function readCss() {
+    var s = getComputedStyle(document.documentElement);
+    ["--bread", "--cheese", "--muted", "--accent"].forEach(function (n) {
+      CSSV[n] = s.getPropertyValue(n).trim();
+    });
+  }
+  function half() { return HALVES[halfIdx]; }
+
+  /** 打点不能越过邻居，也不能出界 —— 拖到底就停在那儿，不让它错位。 */
+  function clampMark(role, t) {
+    // 时长还没拿到时先放开上界，否则会把 C 一路钳到 0
+    var lo = 0, hi = (st.dur > 0) ? st.dur : Infinity;
+    if (role === "a") {
+      hi = (st.b !== null ? st.b : (st.c !== null ? st.c : hi)) - 0.001;
+    } else if (role === "b") {
+      lo = (st.a !== null ? st.a : 0) + 0.001;
+      hi = (st.c !== null ? st.c : hi) - 0.001;
+    } else {
+      lo = (st.b !== null ? st.b : (st.a !== null ? st.a : 0)) + 0.001;
+    }
+    if (hi < lo) hi = lo;
+    return Math.min(Math.max(t, Math.max(0, lo)), hi);
+  }
+
+  function peaksFresh(role) {
+    var p = PEAKS[role], t = st[role];
+    if (!p || !p.peaks || t === null) return false;
+    // 留出两倍窗口的余量，拖动时不至于每动一下就要重新解码
+    var margin = half() * 2;
+    return t - margin >= p.t0 && t + margin <= p.t0 + p.span;
+  }
+
+  function ensurePeaks(role) {
+    var t = st[role];
+    if (t === null || !st.path) { PEAKS[role] = null; return; }
+    if (peaksFresh(role) || pending[role]) return;
+    pending[role] = true;
+    var span = Math.min(60, Math.max(4, half() * 12));
+    fetch(API + "/api/peaks?path=" + encodeURIComponent(st.path) +
+          "&center=" + t + "&span=" + span)
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        pending[role] = false;
+        if (d && d.peaks) { PEAKS[role] = d; drawLane(role); }
+      })
+      .catch(function () { pending[role] = false; });
+  }
+
+  function drawLane(role) {
+    var cv = el("lc" + role.toUpperCase());
+    if (!cv || !cv.getContext) return;
+    var dpr = window.devicePixelRatio || 1;
+    var w = cv.clientWidth || 240;
+    if (cv.width !== Math.round(w * dpr)) {
+      cv.width = Math.round(w * dpr);
+      cv.height = Math.round(LANE_H * dpr);
+    }
+    var g = cv.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, LANE_H);
+
+    var t = st[role], p = PEAKS[role];
+    g.font = '11px -apple-system, "PingFang SC", sans-serif';
+    g.textAlign = "center";
+    if (t === null) {
+      g.fillStyle = CSSV["--muted"] || "#888";
+      g.fillText("先打点，再拖波形微调", w / 2, LANE_H / 2 + 4);
+      return;
+    }
+    if (p && p.peaks && p.peaks.length) {
+      var t0 = t - half(), n = p.peaks.length;
+      g.fillStyle = (role === "b") ? (CSSV["--cheese"] || "#e0a458")
+                                   : (CSSV["--bread"] || "#9a7b4f");
+      for (var x = 0; x < w; x++) {
+        var ta = t0 + (x / w) * half() * 2;
+        var tb = t0 + ((x + 1) / w) * half() * 2;
+        var i0 = Math.floor((ta - p.t0) / p.res);
+        var i1 = Math.ceil((tb - p.t0) / p.res);
+        if (i1 <= i0) i1 = i0 + 1;
+        if (i0 < 0) i0 = 0;
+        if (i1 > n) i1 = n;
+        if (i0 >= n) continue;
+        var v = 0;
+        for (var i = i0; i < i1; i++) { if (p.peaks[i] > v) v = p.peaks[i]; }
+        var bh = Math.max(1, v * (LANE_H - 8));
+        g.fillRect(x, (LANE_H - bh) / 2, 1, bh);
+      }
+    } else {
+      g.fillStyle = CSSV["--muted"] || "#888";
+      g.fillText("波形读取中…", w / 2, LANE_H / 2 + 4);
+    }
+    // 中线：这一条才是打点所在的位置
+    g.fillStyle = CSSV["--accent"] || "#d8893b";
+    g.fillRect(Math.round(w / 2) - 0.75, 0, 1.5, LANE_H);
+  }
+
+  function refreshLanes() {
+    ["a", "b", "c"].forEach(function (role) {
+      el("lv" + role.toUpperCase()).textContent =
+        (st[role] === null) ? "未打点" : fmtMs(st[role]);
+      ensurePeaks(role);
+      drawLane(role);
+    });
+  }
+
+  ["a", "b", "c"].forEach(function (role) {
+    var cv = el("lc" + role.toUpperCase());
+    var startX = 0, startT = 0, moved = false;
+
+    cv.addEventListener("pointerdown", function (e) {
+      if (st[role] === null) return;
+      dragging = role;
+      startX = e.clientX;
+      startT = st[role];
+      moved = false;
+      try { cv.setPointerCapture(e.pointerId); } catch (err) { /* 忽略 */ }
+      e.preventDefault();
+    });
+
+    cv.addEventListener("pointermove", function (e) {
+      if (dragging !== role) return;
+      var w = cv.clientWidth || 240;
+      if (Math.abs(e.clientX - startX) > 1) moved = true;
+      // 波形往右拖 → 竖线指向更早的内容 → 打点往前挪
+      var dt = (e.clientX - startX) / w * half() * 2;
+      st[role] = clampMark(role, startT - dt);
+      paint();          // paint 末尾会顺带刷新三条轨道
+    });
+
+    // 松手才落库：拖动过程中一直往插件发消息既吵，也会让播放器不停跳转
+    cv.addEventListener("pointerup", function (e) {
+      if (dragging !== role) return;
+      dragging = null;
+      try { cv.releasePointerCapture(e.pointerId); } catch (err) { /* 忽略 */ }
+      if (!moved) return;
+      send("setMarkAt", { role: role, t: st[role] });
+      send("goto", { t: st[role] });   // 跳过去听一下，确认落在哪个字前面
+      ensurePeaks(role);
+    });
+    cv.addEventListener("pointercancel", function () { dragging = null; });
+  });
+
+  el("zoom").oninput = function (e) {
+    halfIdx = (+e.target.value) || 0;
+    el("zoom-v").textContent = "±" + half().toFixed(2) + "s";
+    // 缩放一变，需要的分辨率与窗口长度都变了，缓存全部作废
+    PEAKS = { a: null, b: null, c: null };
+    refreshLanes();
+  };
+
   function paint() {
     el("file").textContent = st.file || "未在播放";
     el("file").title = st.file || "";
@@ -389,7 +623,7 @@
 
     ["a", "b", "c"].forEach(function (k) {
       var v = st[k];
-      el("m" + k.toUpperCase()).querySelector(".v").textContent = fmt(v);
+      el("m" + k.toUpperCase()).querySelector(".v").textContent = fmtMs(v);
       el("m" + k.toUpperCase()).className = "mark" + (v !== null ? " set" : "");
     });
 
@@ -427,6 +661,7 @@
         (st.backend ? "已连接本机服务" : "未连到本机服务（先跑 ./run.sh）");
       el("st").style.color = "";
     }
+    refreshLanes();
   }
 
   document.querySelectorAll("[data-set]").forEach(function (b) {
@@ -446,6 +681,9 @@
     st.msg = "正在播放 A→C，旁白会照这段的语气来";
     paint();
   });
+  readCss();
+  el("zoom-v").textContent = "±" + half().toFixed(2) + "s";
+
   el("text").addEventListener("input", paint);
   el("btnGen").addEventListener("click", run);
   el("btnReveal").addEventListener("click", function () {

@@ -22,6 +22,9 @@ let gotUiReady = false;
 let windowReady = false;
 let panelLoaded = false;
 let panelShown = false;
+// 试听到 C 自动停：previewUntil 是停止时刻，null 表示没在试听
+let previewUntil = null;
+let previewArmedAt = 0;
 // 面板通过官方桥报到过 = 双向可用。之后状态直接推给页面，不再绕后端
 let bridgeUp = false;
 
@@ -58,15 +61,23 @@ function currentMedia() {
   return { file: file, path: path, dur: dur };
 }
 
+/**
+ * 当前播放位置。**优先读 mpv 的 time-pos**（双精度），不再以 core.status.position 为准。
+ *
+ * 打点要能落在毫秒上：早先先读 core.status.position，界面上看到的值就总是整数秒，
+ * 微调也就无从谈起。mpv 的属性本身就是 double，取它最稳。
+ */
 function currentPos() {
   try {
-    return iina.core.status.position || iina.mpv.getNumber("time-pos") || 0;
+    const p = iina.mpv.getNumber("time-pos");
+    if (typeof p === "number" && isFinite(p) && p >= 0) return p;
   } catch (e) {
-    try {
-      return iina.mpv.getNumber("time-pos") || 0;
-    } catch (e2) {
-      return 0;
-    }
+    /* 换下一种取法 */
+  }
+  try {
+    return iina.core.status.position || 0;
+  } catch (e2) {
+    return 0;
   }
 }
 
@@ -284,8 +295,9 @@ function drainPanelCommands() {
  * quiet 为真表示这次是从面板的消息回调里发起的，反馈要送回面板；
  * 从菜单 / 快捷键发起时直接上画面浮层。
  */
-function setMark(role, quiet) {
-  const t = currentPos();
+function setMark(role, quiet, at) {
+  // at 为空表示「就打在当前播放位置」；给了具体值则是面板拖动波形后的精调
+  const t = (at === undefined || at === null) ? currentPos() : Math.max(0, at);
   const key = role.toLowerCase();
   const say = quiet ? notify : function (text, isError) { flash(text, isError); };
 
@@ -316,6 +328,7 @@ function setMark(role, quiet) {
 
 function clearMarks(quiet) {
   marks = { a: null, b: null, c: null };
+  previewUntil = null;   // 打点都没了，试听的停止时刻也失去意义
   syncMarksOut();
   const say = quiet ? notify : function (text) { flash(text); };
   say("已清空打点");
@@ -328,21 +341,56 @@ function clearMarks(quiet) {
  * 此时不能碰播放器 UI，反馈改用 notify 交给面板。
  */
 function previewRef(quiet) {
-  const say = quiet
-    ? notify
-    : function (t, e) {
-        flash(t, e);
-      };
+  const say = quiet ? notify : function (t, e) { flash(t, e); };
   if (marks.a === null || marks.c === null) {
     say("先打上 A 和 C", true);
+    return;
+  }
+  if (marks.c - marks.a < 0.02) {
+    say("A 和 C 挨得太近了", true);
     return;
   }
   try {
     iina.mpv.set("time-pos", marks.a);
     iina.core.resume();
-    say(quiet ? "正在播放 A→C" : "正在播放 A→C，这就是参考语音", false);
+    // 播到 C 就自己停下，不然会一路放到片子结尾
+    previewUntil = marks.c;
+    previewArmedAt = Date.now();
+    say(quiet ? "正在播放 A→C（到 C 自动停）" : "正在播放 A→C，到 C 自动停", false);
   } catch (e) {
     say("跳转失败：" + e, true);
+  }
+}
+
+/** 结束试听。msg 非空时把这句话送回面板。 */
+function stopPreview(msg) {
+  previewUntil = null;
+  try {
+    iina.core.pause();
+  } catch (e) {
+    /* 忽略 */
+  }
+  if (msg) notify(msg);
+}
+
+/**
+ * 试听的自动停止。放在周期同步里 —— 插件没有「播放到某处」这类回调可用。
+ */
+function watchPreview() {
+  if (previewUntil === null) return;
+  const p = currentPos();
+  if (p >= previewUntil) {
+    stopPreview("试听结束（已停在 C）");
+    return;
+  }
+  // 用户自己按了暂停也算结束。刚 resume 的那一两轮读到的还是 paused，
+  // 所以要跳过刚起步的这段时间，否则一开播就被判成「用户停了」
+  if (Date.now() - previewArmedAt > 600) {
+    try {
+      if (iina.core.status.paused) previewUntil = null;
+    } catch (e) {
+      /* 忽略 */
+    }
   }
 }
 
@@ -417,8 +465,13 @@ function bindPanelMessages() {
       const data = (d && d.data) || {};
       switch (d && d.cmd) {
         case "setMark": setMark(data.role, true); break;
+        case "setMarkAt": setMark(data.role, true, data.t); break;
         case "clearMarks": clearMarks(true); break;
-        case "preview": previewRef(true); break;
+        // 再点一次就是停 —— 试听有自动停止，但也要能手动打断
+        case "preview": if (previewUntil !== null) stopPreview(null); else previewRef(true); break;
+        case "goto":
+          try { iina.mpv.set("time-pos", Math.max(0, data.t || 0)); } catch (e) { /* 忽略 */ }
+          break;
         case "toggle": togglePause(); break;
         default: break;
       }
@@ -499,6 +552,7 @@ MENU.forEach(function (m) {
 
 step("周期同步", function () {
   setInterval(function () {
+    watchPreview();          // 试听到 C 自动停，与用不用桥无关
     if (bridgeUp) {
       // 桥通了：状态直接推给页面，纯本地调用，一轮网络请求都不发
       pushStateToPanel();
