@@ -5,9 +5,11 @@
  * 界面形态：主面板是 iina.sidebar，嵌在播放器右侧；即时提示是 iina.overlay，
  * 浮在画面上。全程不依赖外部浏览器。
  *
- * 与面板的通信走本机后端中转：本机的 sidebar webview 不会向页面注入可用的
- * 双向桥，但「插件 → 后端」和「页面 → 后端」两条路都实测可达。
- * 插件周期上报播放状态，并轮询后端捞出面板下的指令。
+ * 与面板的通信走官方消息桥（iina.sidebar.postMessage / window.iina.postMessage），
+ * 即时双向，不用轮询，也不经过后端。后端只负责合成这类重活。
+ *
+ * 唯一要小心的是注册时机：sidebar.loadFile 内部会把已注册的监听全部清掉，
+ * 所以 onMessage 必须排在 loadFile 之后，详见 bindPanelMessages 的注释。
  */
 
 const PORT = 8733;
@@ -219,7 +221,7 @@ function syncMarks(session) {
     if (s[k] === undefined) return;
     if (s[k] !== marks[k]) {
       marks[k] = s[k];
-      gotUiReady && panel.postMessage("marks", marks);
+      sayToPanel("marks", marks);
     }
   });
 }
@@ -369,6 +371,7 @@ function ensurePanel() {
     try {
       panel.loadFile("ui/index.html");
       panelLoaded = true;
+      bindPanelMessages();
     } catch (e) {
       flash("面板加载失败：" + e, true);
       return;
@@ -383,43 +386,45 @@ function ensurePanel() {
   syncOut();
 }
 
-/* ---------- 网页消息（若本机环境注入了桥则会生效，作为加强项） ---------- */
-
-panel.onMessage("ui-ready", function () {
-  gotUiReady = true;
-  bridgeUp = true;      // 页面主动报到，说明官方桥这一侧确实是通的
-  diag({ stage: "ui-ready（官方桥已通）", bridgeUp: bridgeUp });
-  try {
-    iina.file.write(
-      iina.utils.resolvePath("@data/bridge-check.json"),
-      JSON.stringify(
-        { ok: true, bridge: "sidebar 双向可用", time: new Date().toISOString(), media: currentMedia() },
-        null,
-        2,
-      ),
-    );
-  } catch (e) {
-    /* 写不进也不影响功能 */
-  }
-  pushStateToPanel();
-  sayToPanel("marks", marks);
-});
+/* ---------- 网页消息（官方桥） ---------- */
 
 /**
- * 面板下的指令。这个回调来自 WKScriptMessageHandler，跑在主线程，
- * 所以这里可以动播放器。提示仍然只回给面板 —— 面板本来就在用户眼前，
- * 不必为了它去碰画面浮层。
+ * 注册面板消息的监听。
+ *
+ * 关键顺序：`sidebar.loadFile` 内部会调用 `messageHub.clearListeners()`，
+ * 把此前注册的所有 onMessage 一次性清掉（见 JavascriptAPISidebarView.loadFile）。
+ * 而网页加载是异步的 —— 清监听这一步必然发生在页面脚本执行之前，
+ * 所以「先注册监听、再 loadFile」的写法会让页面发出的消息全部石沉大海。
+ * 表现是页面明明注入了 window.iina、也发了 ui-ready，插件却一无所知，
+ * 极易被误读成「桥没有注入」。
+ *
+ * 因此：每次 loadFile 之后都要重新注册一遍。
  */
-panel.onMessage("cmd", function (d) {
-  const data = (d && d.data) || {};
-  switch (d && d.cmd) {
-    case "setMark": setMark(data.role, true); break;
-    case "clearMarks": clearMarks(true); break;
-    case "preview": previewRef(true); break;
-    case "toggle": togglePause(); break;
-    default: break;
-  }
-});
+function bindPanelMessages() {
+  step("绑定面板消息", function () {
+    panel.onMessage("ui-ready", function () {
+      gotUiReady = true;
+      bridgeUp = true;    // 页面主动报到，说明这一侧确实是通的
+      diag({ stage: "ui-ready（官方桥已通）", bridgeUp: bridgeUp });
+      pushStateToPanel();
+      sayToPanel("marks", marks);
+    });
+
+    // 面板下的指令。这个回调来自 WKScriptMessageHandler，跑在主线程，
+    // 所以这里可以动播放器。提示仍然只回给面板 —— 面板本来就在用户眼前，
+    // 不必为了它去碰画面浮层。
+    panel.onMessage("cmd", function (d) {
+      const data = (d && d.data) || {};
+      switch (d && d.cmd) {
+        case "setMark": setMark(data.role, true); break;
+        case "clearMarks": clearMarks(true); break;
+        case "preview": previewRef(true); break;
+        case "toggle": togglePause(); break;
+        default: break;
+      }
+    });
+  });
+}
 
 /* ---------- 启动 ---------- */
 
@@ -481,6 +486,7 @@ step("挂载 iina.window-loaded", function () {
     step("sidebar.loadFile", function () {
       panel.loadFile("ui/index.html");
       panelLoaded = true;
+      bindPanelMessages();     // 必须排在 loadFile 之后，否则监听会被它清掉
     });
   });
 });
@@ -498,12 +504,11 @@ step("周期同步", function () {
       pushStateToPanel();
       return;
     }
-    // 面板从没显示过就什么都不做：既没有人在看，也不该为一个没打开的界面
-    // 每 800 毫秒打一轮网络请求
-    if (!panelShown) return;
+    // 桥没通才退回后端会话。这里不以「面板显示过」为闸门：点侧栏标签打开面板
+    // 走不到菜单那条路，拿不到 panelShown，闸门一关面板就永远是空的
     pushState();
     drainPanelCommands();
-  }, 800);
+  }, 1200);
 });
 
 diag({ stage: "脚本执行完毕", log: log, gotUiReady: gotUiReady });

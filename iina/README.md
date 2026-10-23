@@ -151,6 +151,10 @@ IINA 自带的 OpenSubtitles 插件（`io.iina.opensub`）用的就是它。
 > 而我们的面板页面里一次 `window.iina.postMessage` 都没调用过，
 > 插件侧那几个 `onMessage` 自然永远等不到，「ui-ready 收不到」被误读成了「桥不存在」。
 > 阶段一的探针记录仍保留在 [`docs/iina-probe.md`](../docs/iina-probe.md)。
+>
+> 换成桥之后第一次仍然收不到，这次的原因换了一个：`loadFile` 会清监听
+> （见下方「桥的三个使用细节」）。**同一个症状背后可以是两个完全不同的原因**，
+> 所以判断「桥通不通」不能只看有没有收到消息。
 
 现在的通道：
 
@@ -167,9 +171,17 @@ IINA 自带的 OpenSubtitles 插件（`io.iina.opensub`）用的就是它。
 桥不可用时（比如将来某个 IINA 版本不再注入）自动退回旧办法：
 面板写 `POST /api/session` 的 `marks` / `want_preview` 等字段，插件轮询取走。
 两套协议都还在，靠页面启动时有没有 `window.iina` 自动选择。
+另外面板还有一道看门狗：桥在但 2.5 秒内收不到任何状态，就自动降级成轮询，
+避免面板白屏等人来救。
 
-### 桥的两个使用细节
+### 桥的三个使用细节
 
+- **`onMessage` 必须注册在 `loadFile` 之后。** `sidebar.loadFile` 内部最后一步
+  是 `messageHub.clearListeners()`，会把此前注册的所有监听一次性清掉；
+  而网页加载是异步的，清监听必然发生在页面脚本执行之前。
+  写成「先注册、再 loadFile」，页面发出来的消息会全部石沉大海 ——
+  症状是 `diag.json` 里 `loadFile` 成功、`gotUiReady` 却是 false，面板一片空白。
+  每次 `loadFile` 之后都要重新注册（见 `main.js` 的 `bindPanelMessages`）
 - `window.iina.onMessage(name, cb)` 是**覆盖式**的：同名只留最后一个回调。
   所以一个消息名只用一个回调，别在两处注册同一个名字
 - 插件推消息走主线程（`DispatchQueue.main.async` 里的 `evaluateJavaScript`），
@@ -460,13 +472,15 @@ git status --short --ignored
 | 点「试听」IINA 直接崩溃 | 插件在 `iina.http` 回调里碰了播放器 UI。检查崩溃栈是否含 `JavascriptAPIOverlay` 或 `pluginOverlayViewContainer`；该回调内只能做数据操作，提示要走会话的 `notice` 字段 |
 | 修改了 `iina/` 但行为未变 | 重新执行 `./iina/install.sh`，并完全退出 IINA 后重启 |
 
-### 开发期的四个致命坑
+### 开发期的五个致命坑
 
-排查上述问题前，先排除以下四项，前三项表现为「静默失效」，第四项会直接崩溃：
+排查上述问题前，先排除以下五项，前四项表现为「静默失效」，第五项会直接崩溃：
 
 1. **`sidebar.loadFile` 必须晚于播放器窗口就绪**。提前调用会抛出
    `sidebar.loadFile called when window is not available`，
    且后续代码一行都不会执行。挂载点是 `iina.event.on("iina.window-loaded", …)`。
+   **并且 `onMessage` 必须排在 `loadFile` 之后** —— 它会清空已注册的监听，
+   详见上文「桥的三个使用细节」。
 2. **`iina.http.post` 的签名只有两个参数**：`post(url, { data, headers })`，返回 Promise。
    写成旧式的 `post(url, {}, data, cb, cb)` 时请求体为空，
    后端解析空体会得到 500，且日志不提示真实原因。

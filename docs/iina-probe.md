@@ -8,6 +8,12 @@
 > 我们的面板页面里一次 `iina.postMessage` 都没发过，插件侧的 `onMessage` 自然收不到。
 > 官方自带的 OpenSubtitles 插件就是靠侧边栏这个桥工作的。
 > 现在的主通道已改成官方桥，本文件保留作为当时的探测记录。
+>
+> **同日第二次更正**：换成桥之后第一次仍然收不到，原因是另一件事 ——
+> `sidebar.loadFile` 结尾的 `messageHub.clearListeners()` 会把已注册的 `onMessage`
+> 全部清掉，而网页加载是异步的，清空必然早于页面脚本执行。
+> 「先注册监听、再 loadFile」的写法让页面发来的消息全部丢失，
+> 症状同样是「ui-ready 收不到」。真正的修法是把注册排在 `loadFile` 之后。
 
 ## 已确认可用
 

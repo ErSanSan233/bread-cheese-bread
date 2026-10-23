@@ -207,7 +207,15 @@
    * 插件侧对应的就是 iina.sidebar.postMessage / onMessage —— 即时双向，不用轮询，
    * 也不必让后端在中间传话。能用就用，用不了才退回后端会话那一套。
    */
+  /*
+   * 即便 window.iina 存在，也不能假定这条通路一定送得过来 —— 插件侧如果没接住
+   * （例如注册监听的时机被 loadFile 清掉），这里就会一直收不到状态。
+   * 所以 useBridge 是可降级的：收不到东西就把它关掉，退回轮询。
+   */
   var bridge = (window.iina && typeof window.iina.postMessage === "function") ? window.iina : null;
+  var useBridge = !!bridge;
+  var gotState = false;
+  var polling = false;
 
   // 面板 → 插件。桥不通时，这些指令改写成旧的会话字段，让插件轮询取走
   var LEGACY = {
@@ -218,12 +226,13 @@
   };
 
   function send(cmd, data) {
-    if (bridge) { bridge.postMessage("cmd", { cmd: cmd, data: data || {} }); return; }
+    if (useBridge) { bridge.postMessage("cmd", { cmd: cmd, data: data || {} }); return; }
     var f = LEGACY[cmd];
     if (f) post("/api/session", f(data || {})).catch(function () {});
   }
 
   function applyState(d) {
+    gotState = true;
     if (d.pos !== undefined) st.pos = d.pos;
     if (d.dur !== undefined) st.dur = d.dur;
     if (d.name || d.path) { st.file = d.name || d.path; st.path = d.path || ""; }
@@ -284,7 +293,15 @@
       .catch(function () { st.backend = false; paint(); });
   }
 
-  if (bridge) {
+  function startPolling(why) {
+    if (polling) return;
+    polling = true;
+    if (why) { st.msg = why; paint(); }
+    setInterval(poll, 400);
+    poll();
+  }
+
+  if (useBridge) {
     bridge.onMessage("state", applyState);
     bridge.onMessage("marks", function (d) { st.a = d.a; st.b = d.b; st.c = d.c; paint(); });
     bridge.onMessage("notice", function (d) {
@@ -294,9 +311,13 @@
     bridge.postMessage("ui-ready", {});
     probeBackend();
     setInterval(function () { if (!st.backend) probeBackend(); }, 3000);
+    // 看门狗：桥在，但插件侧一直没把状态送过来（多半是它没接住消息），
+    // 那就别干等，退回轮询让面板照常能用
+    setTimeout(function () {
+      if (!gotState) { useBridge = false; startPolling("插件未推送状态，已改用轮询"); }
+    }, 2500);
   } else {
-    setInterval(poll, 400);
-    poll();
+    startPolling();
   }
 
   function setMark(role) {
