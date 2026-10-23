@@ -202,6 +202,36 @@
   }
 
   /*
+   * 官方消息桥。IINA 在文档创建时就把 window.iina 注入进插件页面
+   * （postMessage 走 webkit.messageHandlers.iina，onMessage 收插件推来的消息），
+   * 插件侧对应的就是 iina.sidebar.postMessage / onMessage —— 即时双向，不用轮询，
+   * 也不必让后端在中间传话。能用就用，用不了才退回后端会话那一套。
+   */
+  var bridge = (window.iina && typeof window.iina.postMessage === "function") ? window.iina : null;
+
+  // 面板 → 插件。桥不通时，这些指令改写成旧的会话字段，让插件轮询取走
+  var LEGACY = {
+    setMark: function (d) { var p = {}; p[d.role] = d.t; return { marks: p }; },
+    clearMarks: function () { return { marks: { a: null, b: null, c: null } }; },
+    preview: function () { return { want_preview: true }; },
+    toggle: function () { return { want_pause_toggle: true }; },
+  };
+
+  function send(cmd, data) {
+    if (bridge) { bridge.postMessage("cmd", { cmd: cmd, data: data || {} }); return; }
+    var f = LEGACY[cmd];
+    if (f) post("/api/session", f(data || {})).catch(function () {});
+  }
+
+  function applyState(d) {
+    if (d.pos !== undefined) st.pos = d.pos;
+    if (d.dur !== undefined) st.dur = d.dur;
+    if (d.name || d.path) { st.file = d.name || d.path; st.path = d.path || ""; }
+    if (d.marks) { st.a = d.marks.a; st.b = d.marks.b; st.c = d.marks.c; }
+    paint();
+  }
+
+  /*
    * 焦点。这块面板是播放器侧栏里的一个 WKWebView：它拿到 first responder 之后，
    * 空格就落进网页而不是播放器，表现是「敲空格没反应」。IINA 只在窗口重新变成
    * key window 时把焦点收回去，所以这里自己留两条退路 ——
@@ -220,7 +250,7 @@
     if (e.key === "Escape") { handBackFocus(); return; }
     if (e.key === " " && !isTyping()) {
       e.preventDefault();          // 别让网页把这一下当成滚动
-      post("/api/session", { want_pause_toggle: true }).catch(function () {});
+      send("toggle");
     }
   });
   document.addEventListener("mousedown", function (e) {
@@ -229,36 +259,52 @@
     }
   });
 
-  // 播放器插件与本面板之间没有可用的消息桥（已在本机 IINA 1.5.0 上验证），
-  // 但两者都能访问本机后端：插件把播放状态写进 session，面板到这里取。
+  // 桥通了就不用轮询：插件把状态直接推过来。桥不通才退回旧办法 ——
+  // 插件把状态写进后端会话，面板到这里取。
   function poll() {
     return fetch(API + "/api/session")
       .then(function (r) { return r.json(); })
       .then(function (d) {
         st.backend = true;
-        st.pos = d.pos || 0;
-        st.dur = d.dur || 0;
-        st.file = d.name || d.path || "";
-        st.path = d.path || "";
-        if (d.marks) { st.a = d.marks.a; st.b = d.marks.b; st.c = d.marks.c; }
-        // 插件不能在自己的 http 回调里弹提示（后台线程碰 AppKit 会让播放器 abort），
-        // 这类提示寄存在会话里，由面板代显示。6 秒后自动不再显示。
+        applyState(d);
+        // 插件不能在自己的 http 回调里弹提示（那个回调跑在后台队列，碰 AppKit
+        // 会让播放器 abort），这类提示寄存在会话里，由面板代显示。
         st.notice = (d.notice && Date.now() / 1000 - d.notice.at < 6) ? d.notice : null;
         paint();
       })
       .catch(function () { st.backend = false; paint(); });
   }
-  setInterval(poll, 400);
-  poll();
+
+  // 桥只管播放器这一侧；后端是否还活着（合成要走它）得自己问一次。
+  // 没连上才慢慢重试，别刷屏
+  function probeBackend() {
+    fetch(API + "/api/session")
+      .then(function (r) { return r.json(); })
+      .then(function () { st.backend = true; paint(); })
+      .catch(function () { st.backend = false; paint(); });
+  }
+
+  if (bridge) {
+    bridge.onMessage("state", applyState);
+    bridge.onMessage("marks", function (d) { st.a = d.a; st.b = d.b; st.c = d.c; paint(); });
+    bridge.onMessage("notice", function (d) {
+      st.notice = (d && Date.now() / 1000 - d.at < 6) ? d : null;
+      paint();
+    });
+    bridge.postMessage("ui-ready", {});
+    probeBackend();
+    setInterval(function () { if (!st.backend) probeBackend(); }, 3000);
+  } else {
+    setInterval(poll, 400);
+    poll();
+  }
 
   function setMark(role) {
-    var patch = {};
-    patch[role] = st.pos;
-    post("/api/session", { marks: patch }).then(poll);
+    send("setMark", { role: role, t: st.pos });
   }
 
   function clearMarks() {
-    post("/api/session", { marks: { a: null, b: null, c: null } }).then(poll);
+    send("clearMarks");
   }
 
   function run() {
@@ -368,14 +414,14 @@
     });
   });
   el("btnReset").addEventListener("click", clearMarks);
-  // 播放控制只能由插件做，面板通过调整后端的会话字段下达指令，插件轮询取走。
+  // 播放控制只能由插件做（面板拿不到 iina.core），这里只是下个指令
   el("btnPrev").addEventListener("click", function () {
     if (st.a === null || st.c === null) {
       st.msg = "先打上 A 和 C 才能试听";
       paint();
       return;
     }
-    post("/api/session", { want_preview: true });
+    send("preview");
     st.msg = "正在播放 A→C，旁白会照这段的语气来";
     paint();
   });

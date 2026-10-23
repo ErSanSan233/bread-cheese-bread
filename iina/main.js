@@ -20,6 +20,8 @@ let gotUiReady = false;
 let windowReady = false;
 let panelLoaded = false;
 let panelShown = false;
+// 面板通过官方桥报到过 = 双向可用。之后状态直接推给页面，不再绕后端
+let bridgeUp = false;
 
 function toPath(url) {
   if (!url) return null;
@@ -151,7 +153,58 @@ function pushMarks() {
  * 因此凡是从 http 回调里发起的动作，反馈一律走后端，由面板渲染。
  */
 function notify(text, isError) {
-  postSession({ notice: { text: text, is_error: !!isError, at: Date.now() / 1000 } });
+  const payload = { text: text, is_error: !!isError, at: Date.now() / 1000 };
+  if (sayToPanel("notice", payload)) return;
+  postSession({ notice: payload });
+}
+
+/**
+ * 推一条消息给面板。走的是官方桥（iina.sidebar.postMessage，内部是主线程上的
+ * evaluateJavaScript），所以既即时又不碰网络。返回 false 表示桥还没通。
+ */
+function sayToPanel(name, data) {
+  if (!bridgeUp) return false;
+  try {
+    panel.postMessage(name, data);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function pushStateToPanel() {
+  const m = currentMedia();
+  sayToPanel("state", {
+    path: m.path, name: m.file, pos: currentPos(), dur: m.dur,
+    marks: { a: marks.a, b: marks.b, c: marks.c },
+  });
+}
+
+/** 状态或打点变了，按当前通道同步出去（桥优先，退回后端会话）。 */
+function syncOut() {
+  if (bridgeUp) {
+    pushStateToPanel();
+    return;
+  }
+  pushState();
+  pushMarks();
+}
+
+function syncMarksOut() {
+  if (bridgeUp) {
+    sayToPanel("marks", marks);
+    return;
+  }
+  pushMarks();
+}
+
+function togglePause() {
+  try {
+    if (iina.core.status.paused) iina.core.resume();
+    else iina.core.pause();
+  } catch (e) {
+    /* 忽略 */
+  }
 }
 
 /**
@@ -223,40 +276,47 @@ function drainPanelCommands() {
 
 /* ---------- 打点 ---------- */
 
-/** 打点。B 必须落在 A 与 C 之间，否则拒绝并给出理由。 */
-function setMark(role) {
+/**
+ * 打点。B 必须落在 A 与 C 之间，否则拒绝并给出理由。
+ *
+ * quiet 为真表示这次是从面板的消息回调里发起的，反馈要送回面板；
+ * 从菜单 / 快捷键发起时直接上画面浮层。
+ */
+function setMark(role, quiet) {
   const t = currentPos();
   const key = role.toLowerCase();
+  const say = quiet ? notify : function (text, isError) { flash(text, isError); };
 
   if (key === "a" && marks.c !== null && t >= marks.c) {
-    flash("A 要早于 C（当前在 C 之后）", true);
+    say("A 要早于 C（当前在 C 之后）", true);
     return;
   }
   if (key === "c" && marks.a !== null && t <= marks.a) {
-    flash("C 要晚于 A（当前在 A 之前）", true);
+    say("C 要晚于 A（当前在 A 之前）", true);
     return;
   }
   if (key === "b") {
     if (marks.a !== null && t <= marks.a) {
-      flash("B 要落在 A 与 C 之间", true);
+      say("B 要落在 A 与 C 之间", true);
       return;
     }
     if (marks.c !== null && t >= marks.c) {
-      flash("B 要落在 A 与 C 之间", true);
+      say("B 要落在 A 与 C 之间", true);
       return;
     }
   }
 
   marks[key] = t;
-  pushMarks();
+  syncMarksOut();
   const label = { a: "面包起点 A", b: "插入点 B", c: "面包终点 C" }[key];
-  flash(label + " → " + t.toFixed(1) + "s");
+  say(label + " → " + t.toFixed(1) + "s");
 }
 
-function clearMarks() {
+function clearMarks(quiet) {
   marks = { a: null, b: null, c: null };
-  pushMarks();
-  flash("已清空打点");
+  syncMarksOut();
+  const say = quiet ? notify : function (text) { flash(text); };
+  say("已清空打点");
 }
 
 /**
@@ -320,14 +380,15 @@ function ensurePanel() {
   } catch (e) {
     /* 忽略 */
   }
-  pushState();
-  pushMarks();
+  syncOut();
 }
 
 /* ---------- 网页消息（若本机环境注入了桥则会生效，作为加强项） ---------- */
 
 panel.onMessage("ui-ready", function () {
   gotUiReady = true;
+  bridgeUp = true;      // 页面主动报到，说明官方桥这一侧确实是通的
+  diag({ stage: "ui-ready（官方桥已通）", bridgeUp: bridgeUp });
   try {
     iina.file.write(
       iina.utils.resolvePath("@data/bridge-check.json"),
@@ -340,13 +401,25 @@ panel.onMessage("ui-ready", function () {
   } catch (e) {
     /* 写不进也不影响功能 */
   }
-  pushState();
-  pushMarks();
+  pushStateToPanel();
+  sayToPanel("marks", marks);
 });
 
-panel.onMessage("setMark", function (d) { setMark(d.role); });
-panel.onMessage("clearMarks", function () { clearMarks(); });
-panel.onMessage("preview", function () { previewRef(); });
+/**
+ * 面板下的指令。这个回调来自 WKScriptMessageHandler，跑在主线程，
+ * 所以这里可以动播放器。提示仍然只回给面板 —— 面板本来就在用户眼前，
+ * 不必为了它去碰画面浮层。
+ */
+panel.onMessage("cmd", function (d) {
+  const data = (d && d.data) || {};
+  switch (d && d.cmd) {
+    case "setMark": setMark(data.role, true); break;
+    case "clearMarks": clearMarks(true); break;
+    case "preview": previewRef(true); break;
+    case "toggle": togglePause(); break;
+    default: break;
+  }
+});
 
 /* ---------- 启动 ---------- */
 
@@ -385,7 +458,7 @@ function step(name, fn) {
   } catch (e) {
     log.push({ step: name, ok: false, error: String((e && e.message) || e) });
   }
-  diag({ log: log, gotUiReady: gotUiReady });
+  diag({ log: log, gotUiReady: gotUiReady, bridgeUp: bridgeUp });
 }
 
 const MENU = [
@@ -418,8 +491,13 @@ MENU.forEach(function (m) {
   });
 });
 
-step("周期上报与取指令", function () {
+step("周期同步", function () {
   setInterval(function () {
+    if (bridgeUp) {
+      // 桥通了：状态直接推给页面，纯本地调用，一轮网络请求都不发
+      pushStateToPanel();
+      return;
+    }
     // 面板从没显示过就什么都不做：既没有人在看，也不该为一个没打开的界面
     // 每 800 毫秒打一轮网络请求
     if (!panelShown) return;

@@ -139,42 +139,61 @@ open -a /Applications/IINA.app <视频文件>
 | 插件脚本 | IINA 的 Main 入口（JavaScriptCore） | 读播放状态、控制播放器、显示浮层 |
 | 后端 | 仓库根目录 `./run.sh` | 抽轨、合成、拼接、质检 |
 
-### 为什么由后端承担中转
+### 面板与插件怎么通信：官方桥为主，后端会话兜底
 
-IINA 为 webview 提供了 `postMessage` / `onMessage` 双向桥。
-本机 1.5.0 上，**侧边栏与浮层的桥均未向页面注入可用实例**：
-面板发出的 `ui-ready` 始终收不到。
-阶段一的探针记录保留在 [`docs/iina-probe.md`](../docs/iina-probe.md)。
+IINA 在文档创建时就把 `window.iina` 注入进插件页面（`postMessage` 走
+`webkit.messageHandlers.iina`，`onMessage` 收插件推来的消息），插件侧对应的就是
+`iina.sidebar.postMessage` / `onMessage`。**这是官方推荐的通道，即时双向，无需轮询。**
+IINA 自带的 OpenSubtitles 插件（`io.iina.opensub`）用的就是它。
 
-可行的两条路都指向同一个终点 —— 「插件 → 本机后端」与「面板 → 本机后端」都实测可达，
-因此本机后端兼任两者之间的中转站：
+> 更正一处旧结论：这里原先写着「本机 1.5.0 上侧边栏与浮层的桥均未注入可用实例」。
+> 那是错的 —— 当年真正测过的是 **standaloneWindow**，侧边栏的桥从未测过；
+> 而我们的面板页面里一次 `window.iina.postMessage` 都没调用过，
+> 插件侧那几个 `onMessage` 自然永远等不到，「ui-ready 收不到」被误读成了「桥不存在」。
+> 阶段一的探针记录仍保留在 [`docs/iina-probe.md`](../docs/iina-probe.md)。
+
+现在的通道：
 
 ```
-插件   每 800ms → POST /api/session   上报 文件名 / 时长 / 位置 / alive
-插件   每 800ms → GET  /api/session   取走面板指令 want_preview / want_goto
-面板   每 400ms → GET  /api/session   渲染播放器状态
-面板   按钮动作 → POST /api/session   写 marks / want_preview
-面板      合成  → POST /api/open → /api/job/<id>/generate → 轮询进度
+桥（主）  面板 → 插件   window.iina.postMessage("cmd", {cmd, data})
+桥（主）  插件 → 面板   panel.postMessage("state" / "marks" / "notice", …)
+后端      面板 → 后端   POST /api/open → /api/job/<id>/generate → 轮询进度
 ```
 
-`main.js` 中仍保留 `panel.onMessage` 系列监听，若将来某版本补上注入则自动生效，
-当前不作为主通道依赖。
+桥通了之后插件不再往后端写状态、也不再取指令 —— 除非后端在跑重活，
+否则整条链路上没有周期性的网络请求。面板只在启动和断线时探一次后端是否可达
+（后端没起来时每 3 秒重试一次）。
+
+桥不可用时（比如将来某个 IINA 版本不再注入）自动退回旧办法：
+面板写 `POST /api/session` 的 `marks` / `want_preview` 等字段，插件轮询取走。
+两套协议都还在，靠页面启动时有没有 `window.iina` 自动选择。
+
+### 桥的两个使用细节
+
+- `window.iina.onMessage(name, cb)` 是**覆盖式**的：同名只留最后一个回调。
+  所以一个消息名只用一个回调，别在两处注册同一个名字
+- 插件推消息走主线程（`DispatchQueue.main.async` 里的 `evaluateJavaScript`），
+  面板发消息走 `WKScriptMessageHandler`（同样主线程）。
+  **这与 `iina.http` 的回调不同** —— 后者跑在 NSURLSession 的后台队列，
+  在那里面碰播放器 UI 会让 IINA 直接 abort
 
 ### 后端为插件新增的接口
 
 | 接口 | 用途 |
 |---|---|
-| `GET /api/session` | 取播放器会话（面板轮询，玩家取指令） |
-| `POST /api/session` | 写播放器会话；`marks` 按字段合并，快捷键与面板按钮各写一半也不会互相覆盖 |
+| `GET /api/session` | 取播放器会话。桥不通时面板靠它轮询取状态；桥通时只用于探测后端是否活着 |
+| `POST /api/session` | 写播放器会话；`marks` 按字段合并，快捷键与面板按钮各写一半也不会互相覆盖。桥通之后不再是主通道 |
 | `POST /api/open` | 按本机路径导入；**复制而非移动**，播放器里的原文件不受影响 |
 
-### 打点的双向同步
+### 打点以插件本地为准
 
-打点有两个来源：面板按钮写入会话，快捷键写入插件本地。
-插件每轮轮询时以会话为准补齐本地（`main.js` 的 `syncMarks`），
-因此二者混用不会出现一边缺一半的情况 —— 例如面板点了 A，再按快捷键打 C，
-插件侧同样能拿到完整的 A 与 C。缺少这一步时，面板发起的「试听」
-会因插件本地无打点而误报「先打上 A 和 C」。
+打点有两个来源：面板按钮与快捷键。桥通时两者都直接落到插件本地的 `marks`，
+由插件单向推给面板，**不存在两份真相**。
+
+桥不通时才需要合并：面板写进会话，快捷键写在插件本地，
+插件每轮轮询以会话为准补齐（`main.js` 的 `syncMarks`）。
+缺这一步的话，面板点了 A、再按快捷键打 C，插件本地就只有一半，
+面板发起的「试听」会误报「先打上 A 和 C」。
 
 ### 开发期改动后的更新方式
 
@@ -302,8 +321,11 @@ curl -s http://127.0.0.1:8733/api/session | python3 -c "import sys,json;d=json.l
 
 **通过**：`want_preview` 回落到 `false`（指令已被插件取走），
 `pos` 落在 A 点附近，且播放器开始播放，**IINA 不崩溃**（见下方第四个坑）。
-面板底部此时会显示「正在播放 A→C」这一句 —— 它来自会话的 `notice` 字段，
-因为插件在这个路径上不能自己弹提示。
+
+> 这一条只在**桥不通**时才成立 —— 桥通之后插件不再轮询会话，`want_preview` 没人取。
+> 桥通与否看 `@data/diag.json` 里的 `bridgeUp`（或 `bridge-check.json` 是否生成）。
+> 桥通时直接点面板上的「试听」，判据是播放器跳回 A 点并开始播放，
+> 且面板显示「正在播放 A→C」（这句经桥推给面板，不再经过会话的 `notice`）。
 
 ### T10 · 完整生成链路
 
