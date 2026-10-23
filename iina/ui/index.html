@@ -135,15 +135,23 @@
   .row { display: flex; gap: 6px; margin-bottom: 10px; }
   .row button { flex: 1; }
 
-  .bar {
-    height: 26px; background: var(--surface); border-radius: 5px;
-    position: relative; overflow: hidden; margin-bottom: 10px;
+  /* A→C 试听条。整片进度没必要在面板里再画一条 —— 播放器自己就有。
+     这里只关心旁白要照着来的那一段：播到哪儿、B 插在哪儿。 */
+  .refwrap { margin-bottom: 10px; }
+  .refbar {
+    height: 22px; background: var(--surface); border-radius: 5px;
+    position: relative; overflow: hidden; cursor: pointer;
     border: 1px solid var(--border);
   }
-  .b1 { position: absolute; top: 0; bottom: 0; background: var(--bread); opacity: .5; }
-  .nar { position: absolute; top: 0; bottom: 0; background: var(--cheese); }
-  .b2 { position: absolute; top: 0; bottom: 0; background: var(--bread); opacity: .5; }
-  .head { position: absolute; top: 0; bottom: 0; width: 1.5px; background: var(--text); }
+  .refbar.on { border-color: var(--accent); }
+  .refbar .fill { position: absolute; top: 0; bottom: 0; left: 0; right: 0; background: var(--bread); opacity: .35; }
+  .refbar .rb { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--cheese); }
+  .refbar .rhead { position: absolute; top: 0; bottom: 0; width: 1.5px; background: var(--text); }
+  .refmeta {
+    display: flex; justify-content: space-between; gap: 8px;
+    font-size: 10px; color: var(--muted); margin-top: 3px;
+  }
+  .refmeta .v { font: 500 10px/1 ui-monospace, "SF Mono", Menlo, monospace; }
 
   .speed {
     display: flex; align-items: center; gap: 8px;
@@ -170,17 +178,19 @@
   <div class="file" id="file">未在播放</div>
   <div class="clock"><span id="pos">--:--</span><small id="dur"> / --:--</small></div>
 
-  <div class="bar" id="bar">
-    <div class="b1" id="segA" style="display:none"></div>
-    <div class="nar" id="segN" style="display:none"></div>
-    <div class="b2" id="segC" style="display:none"></div>
-    <div class="head" id="head" style="left:0"></div>
-  </div>
-
   <div class="marks">
     <div class="mark" id="mA" data-role="A"><span class="k">A 面包起</span><span class="v">--</span><button class="tiny" data-set="A">打点</button></div>
     <div class="mark" id="mB" data-role="B"><span class="k">B 插入点</span><span class="v">--</span><button class="tiny" data-set="B">打点</button></div>
     <div class="mark" id="mC" data-role="C"><span class="k">C 面包终</span><span class="v">--</span><button class="tiny" data-set="C">打点</button></div>
+  </div>
+
+  <div class="refwrap" id="refWrap" style="display:none">
+    <div class="refbar" id="refbar" title="点一下跳到该处">
+      <div class="fill"></div>
+      <div class="rb" id="rbB" style="display:none"></div>
+      <div class="rhead" id="rhead" style="display:none"></div>
+    </div>
+    <div class="refmeta"><span id="rbA">A</span><span id="rbLen"></span><span id="rbC">C</span></div>
   </div>
 
   <div class="lanes">
@@ -700,6 +710,51 @@
     refreshLanes();
   };
 
+  /**
+   * A→C 试听条。整片的进度不用在面板里再画一条（播放器自己就有），
+   * 但「旁白要照着来的那一段」值得单独一条：A 与 C 打好后出现，
+   * 试听时播放头在里面走，B 的位置也标在上面 —— 一眼看出旁白会插在哪儿。
+   */
+  function paintRefbar() {
+    var ok = st.a !== null && st.c !== null && st.c > st.a;
+    el("refWrap").style.display = ok ? "block" : "none";
+    if (!ok) return;
+    var span = st.c - st.a;
+    var at = function (t) { return ((t - st.a) / span * 100) + "%"; };
+
+    var hasB = st.b !== null && st.b > st.a && st.b < st.c;
+    el("rbB").style.display = hasB ? "block" : "none";
+    if (hasB) el("rbB").style.left = at(st.b);
+
+    // 播放头只在落进 A→C 时才画：在这段之外，它对试听没有意义
+    var inside = st.pos >= st.a && st.pos <= st.c;
+    el("rhead").style.display = inside ? "block" : "none";
+    if (inside) el("rhead").style.left = at(st.pos);
+
+    el("rbA").textContent = fmtMs(st.a);
+    el("rbC").textContent = fmtMs(st.c);
+    el("rbLen").textContent = span.toFixed(2) + "s" +
+      (hasB ? " · B 在 " + (st.b - st.a).toFixed(2) + "s" : "");
+
+    // 正在播的就是 A→C 时把这条点亮，说明「现在听的是这一段」
+    var pr = st.prange;
+    var on = !!(st.playing && pr && pr.from <= st.a + 0.01 && pr.to >= st.c - 0.01);
+    el("refbar").className = "refbar" + (on ? " on" : "");
+  }
+
+  // 点条上任意一处就跳过去 —— 想从中间听一句，不必先拖播放器
+  el("refbar").addEventListener("click", function (e) {
+    if (!(st.a !== null && st.c !== null && st.c > st.a)) return;
+    var box = el("refbar");
+    var r = (box.getBoundingClientRect && box.getBoundingClientRect()) ||
+            { left: 0, width: box.clientWidth || 0 };
+    var f = Math.min(1, Math.max(0, (e.clientX - (r.left || 0)) / (r.width || 1)));
+    var t = st.a + f * (st.c - st.a);
+    st.pos = t;                 // 插件下一轮才把新位置推回来，先自己挪一下
+    send("goto", { t: t });
+    paint();
+  });
+
   function paint() {
     el("file").textContent = st.file || "未在播放";
     el("file").title = st.file || "";
@@ -718,22 +773,7 @@
       pb.title = on ? "停止" : "播放这条轴上看到的这一小段";
     });
 
-    if (st.dur > 0) {
-      var pct = function (t) { return (Math.min(t, st.dur) / st.dur * 100) + "%"; };
-      el("head").style.left = pct(st.pos);
-      var ok = st.a !== null && st.c !== null && st.c > st.a;
-      var hasB = ok && st.b !== null && st.b > st.a && st.b < st.c;
-
-      el("segA").style.display = ok ? "block" : "none";
-      if (ok) el("segA").style.width = pct(hasB ? st.b : st.c);
-
-      el("segC").style.display = hasB ? "block" : "none";
-      if (hasB) {
-        el("segC").style.left = pct(st.b);
-        el("segC").style.width = ((st.c - st.b) / st.dur * 100) + "%";
-      }
-      el("segN").style.display = hasB ? "block" : "none";
-    }
+    paintRefbar();
 
     var ready = st.backend && !!st.path && st.a !== null && st.b !== null &&
                 st.c !== null && st.a < st.b && st.b < st.c &&
