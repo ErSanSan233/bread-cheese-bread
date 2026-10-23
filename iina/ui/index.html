@@ -230,7 +230,11 @@
     <span class="v" id="speed-v">1.00</span>
   </div>
 
-  <button class="primary" id="btnGen" disabled>合成并插回去</button>
+  <!-- 两件事分开：先只合成旁白听一句，满意了再插回原声 -->
+  <div class="row">
+    <button id="btnNar" disabled title="只用 A→C 的音色念出来，不碰原声">只合成旁白</button>
+    <button class="primary" id="btnGen" disabled title="切成 A→B + 旁白 + B→C">合成并插回去</button>
+  </div>
 
   <div class="status"><span class="dot off" id="dot"></span><span id="st">正在连接</span></div>
 
@@ -421,23 +425,31 @@
     send("clearMarks");
   }
 
-  function run() {
+  /**
+   * mode = "narration" 只合成旁白（不切面包、不拼接）；
+   * mode = "sandwich" 才是完整的两面包夹芝士。两者共用同一条流水线，
+   * 差别只在后端要不要继续做下去。
+   */
+  function run(mode) {
     if (!st.path) { st.msg = "先在播放器里打开一个文件"; paint(); return; }
     el("btnGen").disabled = true;
+    el("btnNar").disabled = true;
     st.result = null;
     st.msg = "正在读取素材…";
     paint();
+    var narOnly = (mode === "narration");
 
     post("/api/open", { path: st.path })
       .then(function (r) {
         if (!r.ok) throw new Error(r.error || "打不开这个文件");
         st.job = r.id;
-        st.msg = "正在合成，第一次要约一分钟…";
+        st.msg = narOnly ? "正在合成旁白，第一次要约一分钟…"
+                         : "正在合成，第一次要约一分钟…";
         paint();
         return post("/api/job/" + r.id + "/generate", {
           a: st.a, b: st.b, c: st.c,
           text: el("text").value.trim(),
-          mode: "sandwich", speed: +el("speed").value || 1.0,
+          mode: mode, speed: +el("speed").value || 1.0,
           auto_ref: true, pace: false, unify_loudness: false, qc: true,
         });
       })
@@ -453,9 +465,13 @@
                 st.job = null;
                 if (j.stage === "done") {
                   st.result = j.result || null;
-                  st.msg = st.result && st.result.out_dir
-                    ? "已生成，成品在下方（可直接在访达里打开）"
-                    : "已生成，到输出目录查看";
+                  if (!st.result || !st.result.out_dir) {
+                    st.msg = "已生成，到输出目录查看";
+                  } else if (st.result.mode === "narration") {
+                    st.msg = "旁白已生成，还没插回原声（文件在下方）";
+                  } else {
+                    st.msg = "已生成，成品在下方（可直接在访达里打开）";
+                  }
                   var pc = st.result && st.result.pace;
                   if (pc && pc.reason) st.msg = "语速对齐：" + pc.reason + "。" + st.msg;
                 } else {
@@ -775,15 +791,22 @@
 
     paintRefbar();
 
-    var ready = st.backend && !!st.path && st.a !== null && st.b !== null &&
-                st.c !== null && st.a < st.b && st.b < st.c &&
-                el("text").value.trim().length > 0 && !st.job;
+    // 只合成旁白只要有参考区间 A→C 就能跑（B 只是给参考窗口一个偏好位置）；
+    // 要插回去才必须有 A<B<C
+    var base = st.backend && !!st.path && st.a !== null && st.c !== null &&
+               st.a < st.c && el("text").value.trim().length > 0 && !st.job;
+    var ready = base && st.b !== null && st.a < st.b && st.b < st.c;
+    el("btnNar").disabled = !base;
     el("btnGen").disabled = !ready;
     el("dot").className = "dot " + (st.backend ? "on" : "off");
 
     var out = (st.result && st.result.out_dir) ? st.result.out_dir : "";
     el("outBox").style.display = out ? "block" : "none";
-    if (out) el("outPath").textContent = out;
+    if (out) {
+      var name = (st.result.out_wav || "").split("/").pop();
+      el("outPath").textContent =
+        (st.result.mode === "narration" ? "旁白：" : "成品：") + (name || out);
+    }
     if (st.notice) {
       el("st").textContent = st.notice.text;
       el("st").style.color = st.notice.is_error ? "var(--bad)" : "";
@@ -823,7 +846,8 @@
   el("zoom-v").textContent = "±" + half().toFixed(2) + "s";
 
   el("text").addEventListener("input", paint);
-  el("btnGen").addEventListener("click", run);
+  el("btnNar").addEventListener("click", function () { run("narration"); });
+  el("btnGen").addEventListener("click", function () { run("sandwich"); });
   el("btnReveal").addEventListener("click", function () {
     var p = st.result && (st.result.out_wav || st.result.out_dir);
     if (!p) return;

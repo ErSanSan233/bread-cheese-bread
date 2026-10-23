@@ -99,12 +99,34 @@ def transcribe_reference(job: dict, start: float, end: float,
     return qc.transcribe(w)
 
 
+def _media(job_id: str, p: Path | None) -> str | None:
+    return f"/media/{job_id}/gen/{p.name}" if p and p.exists() else None
+
+
+def _maybe_qc(job: dict, nar_raw: Path, text: str, want_qc: bool) -> dict | None:
+    """回读旁白跟稿子逐字比对。只合成与插回去两种模式都要跑。"""
+    if not want_qc:
+        return None
+    set_status(job, "qc", 0.94, "正在回读质检…")
+    try:
+        got = qc.transcribe(nar_raw)
+        res = qc.compare(text, got)
+        res["asr_text"] = got
+        return res
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def _run_pipeline(job: dict, req: dict):
     d = job["dir"]
     gen = d / "gen"
-    a, b, c = float(req["a"]), float(req["b"]), float(req["c"])
+    a, c = float(req["a"]), float(req["c"])
+    b_raw = req.get("b")
+    b = float(b_raw) if b_raw is not None else None
     text = (req.get("text") or "").strip()
     mode = req.get("mode") or "sandwich"
+    # 「只合成」不碰原声：切面包、拼接、匹配面包响度这些步骤都跳过
+    narration_only = (mode == "narration")
     # 「语速」是越大越快；模型那边的 duration_factor 是越大越慢。
     # 两个相反的语义只在这一层换算，不让反向的值一路传到 worker。
     speed = min(max(float(req.get("speed") or 1.0), 0.5), 2.0)
@@ -115,8 +137,17 @@ def _run_pipeline(job: dict, req: dict):
 
     if not text:
         raise ValueError("旁白文本是空的")
-    if not (0 <= a < b < c <= dur + 0.001):
-        raise ValueError(f"时间点不满足 A<B<C 且在音频范围内（总长 {dur:.2f}s）")
+    if narration_only:
+        if not (0 <= a < c <= dur + 0.001):
+            raise ValueError(f"时间点不满足 A<C 且在音频范围内（总长 {dur:.2f}s）")
+        # 只合成时 B 不是插入点，只用来给参考窗口一个偏好位置（尽量含住它）
+        if b is None:
+            b = (a + c) / 2.0
+    else:
+        if b is None:
+            raise ValueError("缺少插入点 B")
+        if not (0 <= a < b < c <= dur + 0.001):
+            raise ValueError(f"时间点不满足 A<B<C 且在音频范围内（总长 {dur:.2f}s）")
 
     hifi = d / "hifi.wav"
     info = audio.probe(hifi)
@@ -159,6 +190,58 @@ def _run_pipeline(job: dict, req: dict):
         except Exception as e:
             pace_info["error"] = str(e)
 
+    # 两种模式都要用旁白原始响度，提前量一次
+    meas_n = audio.measure_loudness(nar_raw)
+
+    # 3.（只合成模式到此为止）
+    # 不切面包、不拼接 —— 旁白单独导出，方便先听一句再决定要不要插回去。
+    # 没有面包可对响度，退到统一目标（TARGET_LUFS）；真要插回去时，
+    # 从 nar_raw 重新按面包匹配，不复用这一版。
+    if narration_only:
+        set_status(job, "export", 0.8, "正在导出旁白…")
+        nar_wav = gen / f"{stem}_旁白.wav"
+        audio.loudnorm_apply(nar_raw, nar_wav, meas_n, config.TARGET_LUFS, rate, ch)
+        nar_48k = gen / f"{stem}_旁白_48k.wav"
+        try:
+            audio.loudnorm_apply(nar_raw, nar_48k, meas_n,
+                                 config.TARGET_LUFS, 48000, 1)
+        except Exception:
+            nar_48k = None
+        out_mp3 = gen / f"{stem}_旁白.mp3"
+        try:
+            audio.to_mp3(nar_wav, out_mp3)
+        except Exception:
+            out_mp3 = None
+        result = {
+            "mode": "narration",
+            "text": text,
+            "out_dir": str(gen),
+            "out_wav": str(nar_wav),
+            "out_mp3": str(out_mp3) if out_mp3 else None,
+            "wav": _media(job["id"], nar_wav),
+            "mp3": _media(job["id"], out_mp3),
+            "narration": _media(job["id"], nar_wav),
+            "narration_48k": _media(job["id"], nar_48k),
+            "ref_window": pick,
+            "ref_audio": _media(job["id"], ref_wav),
+            "timing": {"synth_sec": round(synth_sec, 1)},
+            "loudness": {
+                "bread_i": None,
+                "narration_raw_i": round(meas_n["input_i"], 2),
+                "narration_matched_to": round(config.TARGET_LUFS, 2),
+                "unified": True,
+                "note": "只合成模式没有面包可对，旁白按统一目标归一",
+            },
+            "qc": _maybe_qc(job, nar_raw, text, want_qc),
+            "pace": pace_info,
+            "out_duration": round(audio.duration_of(nar_wav), 3),
+        }
+        set_status(job, "done", 1.0, "完成")
+        job["status"]["result"] = result
+        (d / "result.json").write_text(
+            json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        return
+
     # 3. 切两片面包
     set_status(job, "slice", 0.62, "正在切分原声…")
     if mode == "full":
@@ -184,7 +267,6 @@ def _run_pipeline(job: dict, req: dict):
     if unify:
         target_i = config.TARGET_LUFS
 
-    meas_n = audio.measure_loudness(nar_raw)
     s2 = gen / "s2.wav"
     audio.loudnorm_apply(nar_raw, s2, meas_n, target_i, rate, ch)
 
@@ -212,28 +294,21 @@ def _run_pipeline(job: dict, req: dict):
         out_mp3 = None
 
     # 7. 质检回读
-    qcres = None
-    if want_qc:
-        set_status(job, "qc", 0.94, "正在回读质检…")
-        try:
-            got = qc.transcribe(nar_raw)
-            qcres = qc.compare(text, got)
-            qcres["asr_text"] = got
-        except Exception as e:
-            qcres = {"error": str(e)}
+    qcres = _maybe_qc(job, nar_raw, text, want_qc)
 
     result = {
+        "mode": mode,
+        "text": text,          # 存原始稿子，重跑时不用再从 qc.diffs 反推
         # 面板要显示「成品在哪」，给的是本机绝对路径（只在回环接口里出现）
         "out_dir": str(gen),
         "out_wav": str(out_wav),
         "out_mp3": str(out_mp3) if out_mp3 else None,
-        "wav": f"/media/{job['id']}/gen/{out_wav.name}" if out_wav.exists() else None,
-        "mp3": f"/media/{job['id']}/gen/{out_mp3.name}" if out_mp3 and out_mp3.exists() else None,
-        "narration": f"/media/{job['id']}/gen/{nar_wav.name}",
-        "narration_48k": (f"/media/{job['id']}/gen/{nar_48k.name}"
-                          if nar_48k and nar_48k.exists() else None),
+        "wav": _media(job["id"], out_wav),
+        "mp3": _media(job["id"], out_mp3),
+        "narration": _media(job["id"], nar_wav),
+        "narration_48k": _media(job["id"], nar_48k),
         "ref_window": pick,
-        "ref_audio": f"/media/{job['id']}/gen/{ref_wav.name}",
+        "ref_audio": _media(job["id"], ref_wav),
         "timing": {
             "bread1": [round(s1_src[0], 3), round(s1_src[1], 3)],
             "bread2": [round(s3_src[0], 3), round(s3_src[1], 3)],
