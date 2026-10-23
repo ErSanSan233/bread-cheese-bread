@@ -22,8 +22,9 @@ let gotUiReady = false;
 let windowReady = false;
 let panelLoaded = false;
 let panelShown = false;
-// 试听到 C 自动停：previewUntil 是停止时刻，null 表示没在试听
+// 区间播放：previewUntil 是停止时刻，null 表示没在播；previewFrom 是起点
 let previewUntil = null;
+let previewFrom = null;
 let previewArmedAt = 0;
 // 面板通过官方桥报到过 = 双向可用。之后状态直接推给页面，不再绕后端
 let bridgeUp = false;
@@ -190,6 +191,9 @@ function pushStateToPanel() {
   sayToPanel("state", {
     path: m.path, name: m.file, pos: currentPos(), dur: m.dur,
     marks: { a: marks.a, b: marks.b, c: marks.c },
+    // 面板要在轴上画播放头、并把按钮切成「停」，就得知道现在播的是哪一段
+    playing: previewUntil !== null,
+    prange: previewUntil !== null ? { from: previewFrom, to: previewUntil } : null,
   });
 }
 
@@ -328,7 +332,9 @@ function setMark(role, quiet, at) {
 
 function clearMarks(quiet) {
   marks = { a: null, b: null, c: null };
-  previewUntil = null;   // 打点都没了，试听的停止时刻也失去意义
+  // 打点都没了，正在播的区间也失去意义
+  previewUntil = null;
+  previewFrom = null;
   syncMarksOut();
   const say = quiet ? notify : function (text) { flash(text); };
   say("已清空打点");
@@ -350,14 +356,28 @@ function previewRef(quiet) {
     say("A 和 C 挨得太近了", true);
     return;
   }
+  playRange(marks.a, marks.c, "A→C", quiet, say);
+}
+
+/**
+ * 播一段区间，到点自己停。试听（A→C）和轨道上那一小段都走这里 ——
+ * 面板要在轴上画实时播放头，所以「正在播的区间」得作为状态推过去。
+ */
+function playRange(from, to, label, quiet, say) {
+  say = say || (quiet ? notify : function (t, e) { flash(t, e); });
+  const dur = (currentMedia().dur) || 0;
+  const t0 = Math.max(0, Math.min(from, dur > 0 ? dur : from));
+  const t1 = Math.max(t0 + 0.02, Math.min(to, dur > 0 ? dur : to));
   try {
-    iina.mpv.set("time-pos", marks.a);
+    iina.mpv.set("time-pos", t0);
     iina.core.resume();
-    // 播到 C 就自己停下，不然会一路放到片子结尾
-    previewUntil = marks.c;
+    previewFrom = t0;
+    previewUntil = t1;
     previewArmedAt = Date.now();
-    say(quiet ? "正在播放 A→C（到 C 自动停）" : "正在播放 A→C，到 C 自动停", false);
+    say("正在播放 " + (label || "这一段") + "，到点自动停", false);
+    syncOut();          // 立刻把「正在播」这个状态推给面板，别等下一轮
   } catch (e) {
+    previewFrom = previewUntil = null;
     say("跳转失败：" + e, true);
   }
 }
@@ -365,12 +385,14 @@ function previewRef(quiet) {
 /** 结束试听。msg 非空时把这句话送回面板。 */
 function stopPreview(msg) {
   previewUntil = null;
+  previewFrom = null;
   try {
     iina.core.pause();
   } catch (e) {
     /* 忽略 */
   }
   if (msg) notify(msg);
+  syncOut();   // 面板的播放头与停止键要立刻复位，别等下一轮周期同步
 }
 
 /**
@@ -380,14 +402,14 @@ function watchPreview() {
   if (previewUntil === null) return;
   const p = currentPos();
   if (p >= previewUntil) {
-    stopPreview("试听结束（已停在 C）");
+    stopPreview("播放结束（停在 " + p.toFixed(3) + "s）");
     return;
   }
   // 用户自己按了暂停也算结束。刚 resume 的那一两轮读到的还是 paused，
   // 所以要跳过刚起步的这段时间，否则一开播就被判成「用户停了」
   if (Date.now() - previewArmedAt > 600) {
     try {
-      if (iina.core.status.paused) previewUntil = null;
+      if (iina.core.status.paused) stopPreview(null);
     } catch (e) {
       /* 忽略 */
     }
@@ -467,8 +489,10 @@ function bindPanelMessages() {
         case "setMark": setMark(data.role, true); break;
         case "setMarkAt": setMark(data.role, true, data.t); break;
         case "clearMarks": clearMarks(true); break;
-        // 再点一次就是停 —— 试听有自动停止，但也要能手动打断
+        // 再点一次就是停 —— 播区间有自动停止，但也要能手动打断
         case "preview": if (previewUntil !== null) stopPreview(null); else previewRef(true); break;
+        case "playRange": playRange(data.from, data.to, data.label || "这一段", true); break;
+        case "stop": stopPreview(null); break;
         case "goto":
           try { iina.mpv.set("time-pos", Math.max(0, data.t || 0)); } catch (e) { /* 忽略 */ }
           break;
@@ -563,6 +587,28 @@ step("周期同步", function () {
     pushState();
     drainPanelCommands();
   }, 1200);
+});
+
+/**
+ * 播放期间把位置推得更勤一些。
+ *
+ * 主循环 1.2 秒一轮，画播放头会一顿一顿的，微调时看不清落点。
+ * 桥模式下推状态只是一次本地 evaluateJavaScript，十几毫秒一次也不心疼；
+ * 但桥没通时走的是后端会话，那样刷就等于每秒十次网络请求，所以只在桥上开。
+ * 暂停且没在区间播放时不推 —— 画面本来就不动。
+ */
+step("播放期间的高频推送", function () {
+  setInterval(function () {
+    if (!bridgeUp) return;
+    if (previewUntil === null) {
+      try {
+        if (iina.core.status.paused) return;
+      } catch (e) {
+        return;
+      }
+    }
+    pushStateToPanel();
+  }, 110);
 });
 
 diag({ stage: "脚本执行完毕", log: log, gotUiReady: gotUiReady });
