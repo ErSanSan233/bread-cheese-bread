@@ -5,305 +5,308 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>两面包夹芝士</title>
 <style>
+  /*
+   * 界面本身不带颜色。
+   * 颜色只属于内容：波形、选区、播放头 —— 外加唯一的强调色，它取系统设置里
+   * 你自己挑的那一个（AccentColor）。UI 的分块一律靠留白与材质差，不靠描边。
+   */
   :root {
-    --bg: #fbfaf8;
-    --surface: #f2efe9;
-    --surface2: #e7e3da;
-    --border: rgba(60, 60, 67, 0.14);
-    --text: #1d1b18;
-    --text2: #6b655c;
-    --muted: #9a948a;
-    --brand: #cf9413;
-    --bread: #8a6a3d;
-    --ink: #241d16;
-    --onInk: #fdfbf7;
-    --ok: #2f8f6b;
-    --bad: #bd4b3c;
-    --r: 9px;
-    --rsm: 6px;
-    --g: 18px;
+    color-scheme: light dark;
+
+    --label: rgba(0, 0, 0, 0.85);
+    --label2: rgba(0, 0, 0, 0.5);
+    --label3: rgba(0, 0, 0, 0.32);
+    --chip: rgba(0, 0, 0, 0.05);
+    --chipHi: rgba(0, 0, 0, 0.095);
+    --sunken: rgba(0, 0, 0, 0.045);
+    --hair: rgba(0, 0, 0, 0.1);
+    --bad: #ff3b30;
+    --warn: #ff9500;
+
+    --accent: #0a84ff;
+    --onAccent: #fff;
+
+    /* canvas 里要用的四个：波形回归中性，中心竖线与播放头用强调色 */
+    --bread: rgba(0, 0, 0, 0.42);
+    --brand: #0a84ff;
+    --muted: rgba(0, 0, 0, 0.3);
+    --text: rgba(0, 0, 0, 0.85);
+
+    --r: 10px;
+    --rsm: 7px;
+    --rxs: 5px;
+  }
+  @supports (color: AccentColor) {
+    :root { --accent: AccentColor; --onAccent: AccentColorText; --brand: AccentColor; }
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #191714;
-      --surface: #232019;
-      --surface2: #2c281f;
-      --border: rgba(255, 255, 255, 0.12);
-      --text: #f2ece1;
-      --text2: #a8a196;
-      --muted: #7d776d;
-      --brand: #e6b155;
-      --bread: #c2a276;
-      --ink: #e6b155;
-      --onInk: #241a0c;
-      --ok: #4dbf95;
-      --bad: #e58072;
+      --label: rgba(255, 255, 255, 0.9);
+      --label2: rgba(255, 255, 255, 0.55);
+      --label3: rgba(255, 255, 255, 0.34);
+      --chip: rgba(255, 255, 255, 0.08);
+      --chipHi: rgba(255, 255, 255, 0.14);
+      --sunken: rgba(255, 255, 255, 0.055);
+      --hair: rgba(255, 255, 255, 0.11);
+      --bad: #ff453a;
+      --warn: #ff9f0a;
+      --bread: rgba(255, 255, 255, 0.4);
+      --muted: rgba(255, 255, 255, 0.28);
+      --text: rgba(255, 255, 255, 0.9);
     }
   }
+
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    padding: 14px 14px 16px;
-    background: var(--bg);
-    color: var(--text);
-    font: 13px/1.55 -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+    padding: 11px 13px 13px;
+    background: transparent;
+    color: var(--label);
+    font: 13px/1.5 -apple-system, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased;
     -webkit-user-select: none;
   }
 
-  /* 顶部是上下文，不是功能：文件名、时间码、服务是否在线 */
-  .top { display: flex; align-items: baseline; gap: 8px; margin-bottom: var(--g); }
-  .brand { display: flex; align-items: center; gap: 6px; flex: none; }
-  .brandName { font-size: 13px; font-weight: 500; letter-spacing: .01em; }
-  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex: none; }
-  .dot.on { background: var(--ok); }
+  /* 顶部这一行是元信息，不是标题栏：文件名与时间码同一行，服务状态只占一个点 */
+  .top { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--label2); }
+  .top .title { color: var(--label); font-weight: 500; }
+  .top .file {
+    max-width: 108px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .top .tc { margin-left: auto; display: flex; align-items: center; gap: 5px; flex: none; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--label3); flex: none; }
+  .dot.on { background: var(--accent); }
   .dot.off { background: var(--bad); }
-  .ctx { margin-left: auto; text-align: right; min-width: 0; }
-  .ctx .file {
-    display: block; font-size: 11px; color: var(--muted);
-    max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .ctx .clock {
-    font: 500 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
-    color: var(--text2);
-  }
 
-  /* 组：四步。组间距远大于组内间距，眼睛自然读出「先做哪一步」 */
-  .grp + .grp { margin-top: var(--g); }
-  .grpHead { display: flex; align-items: baseline; gap: 7px; margin-bottom: 8px; }
-  .step {
-    font: 500 10px/1 ui-monospace, "SF Mono", Menlo, monospace;
-    color: var(--muted); letter-spacing: .06em; padding-top: 2px;
-  }
-  .grpTitle { font-size: 13px; font-weight: 500; }
-  .grpHead .spacer { flex: 1; }
-
-  /* 参考条：这条常驻。没打点时它是空骨架 —— 它本身就是说明书，
-     告诉用户「要在原声上取一段」，而不是等两个数齐了才冒出来。 */
-  .refwrap { margin-bottom: 9px; }
+  /* 取样区间：6px 的一条浅槽。没取样时它就是空槽，本身就是说明 */
+  .refrange { margin-top: 13px; }
   .refbar {
-    position: relative; height: 34px; border-radius: var(--rsm);
-    background: var(--surface); overflow: hidden; cursor: pointer;
+    position: relative; height: 6px; border-radius: 3px;
+    background: var(--sunken); overflow: hidden; cursor: pointer;
   }
-  .refbar.empty { background: var(--surface); box-shadow: inset 0 0 0 1px var(--border); }
-  .refbar .fill { position: absolute; top: 0; bottom: 0; background: var(--bread); opacity: .22; }
-  .refbar .edge { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--bread); }
-  .refbar .rb { position: absolute; top: 0; bottom: 0; width: 3px; background: var(--brand); }
-  .refbar .rhead { position: absolute; top: 0; bottom: 0; width: 1.5px; background: var(--text); }
-  .refbar .rhead::before {
-    content: ""; position: absolute; top: 0; left: -2px;
-    border: 3px solid transparent; border-top-color: var(--text);
-  }
-  .refbar .empty {
-    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-    font-size: 11px; color: var(--muted);
-  }
-  .refbar.on { box-shadow: inset 0 0 0 1.5px var(--brand); }
+  .refbar.empty { opacity: .55; }
+  .refbar .fill { position: absolute; top: 0; bottom: 0; background: var(--accent); opacity: .26; }
+  .refbar .edge { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); }
+  .refbar .rb { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--label); opacity: .5; }
+  .refbar .rhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--label); }
+  .refbar.on { box-shadow: inset 0 0 0 1px var(--accent); }
   .refmeta {
-    display: flex; justify-content: space-between; gap: 8px;
-    font: 500 10px/1.6 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted);
+    display: flex; justify-content: space-between; gap: 8px; margin-top: 5px;
+    font-size: 11px; color: var(--label2);
   }
+  .refmeta .hint { color: var(--label3); }
 
-  /* 一张卡一个时间点：标签、值、两个操作都在同一张卡里。
-     A/C 用的是同一套结构，B 也是 —— 只是 B 住在第四步。 */
-  .card { background: var(--surface); border-radius: var(--rsm); padding: 7px 8px 6px; }
-  .card + .card { margin-top: 6px; }
-  .cardTop { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; }
-  .role {
-    width: 18px; height: 18px; border-radius: 50%; flex: none;
-    display: flex; align-items: center; justify-content: center;
-    font: 500 10px/1 ui-monospace, Menlo, monospace; color: #fff;
+  /* 三条轴是一组，不是一个一个的盒子：共享一个容器，之间只用一条 hairline */
+  .lanes {
+    margin-top: 9px; border-radius: var(--rsm); overflow: hidden; background: var(--sunken);
   }
-  [data-role="A"] .role, [data-role="C"] .role { background: var(--bread); }
-  [data-role="B"] .role { background: var(--brand); }
-  .card .cv {
-    font: 500 13px/1 ui-monospace, "SF Mono", Menlo, monospace; color: var(--text);
+  .lane { position: relative; }
+  .lane + .lane { border-top: 0.5px solid var(--hair); }
+  .lane canvas {
+    display: block; width: 100%; height: 48px; touch-action: none; cursor: ew-resize;
   }
-  .card .cv.unset { color: var(--muted); font-weight: 400; }
-  .chip {
-    border: 1px solid var(--border); background: var(--bg); color: var(--text2);
-    border-radius: 5px; padding: 1px 7px; font-size: 11px; cursor: pointer;
-    line-height: 18px; height: 20px;
+  .lane:hover canvas { background: var(--chip); }
+  .laneTag {
+    position: absolute; left: 8px; top: 6px; pointer-events: none;
+    font: 500 10px/1 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--label2); letter-spacing: .05em;
   }
-  .chip:hover { color: var(--text); border-color: var(--text2); }
-  .chip.icon { padding: 1px 6px; min-width: 24px; }
-  .chip.on { color: var(--brand); border-color: var(--brand); }
-  .card canvas {
-    display: block; width: 100%; height: 40px; border-radius: 5px;
-    background: var(--bg); cursor: ew-resize; touch-action: none;
+  /* 轴上的操作平时藏着，指针进来了才浮出来 —— 波形自己才是主角 */
+  .laneTop {
+    position: absolute; right: 6px; top: 5px; display: flex; align-items: center; gap: 4px;
+    opacity: 0; transition: opacity .12s ease;
   }
+  .lane:hover .laneTop, .laneTop:focus-within, .laneTop:has(.on) { opacity: 1; }
+
+  .cv {
+    font: 500 11px/1 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--label); font-variant-numeric: tabular-nums;
+  }
+  .cv.unset { color: var(--label3); font-weight: 400; }
 
   button {
-    font: inherit; cursor: pointer;
-    border: 1px solid var(--border); border-radius: var(--rsm);
-    background: var(--surface); color: var(--text2); padding: 6px 10px;
+    font: inherit; font-size: 12px; cursor: pointer;
+    border: none; border-radius: var(--rsm); padding: 0 12px; height: 26px;
+    background: var(--chip); color: var(--label);
+    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
   }
-  button:hover { color: var(--text); }
-  button:active { opacity: .65; }
-  button[disabled] { opacity: .45; cursor: default; }
-  button[disabled]:hover { color: var(--text2); }
-  button.link {
-    border: none; background: none; padding: 2px 0; font-size: 11px;
-    color: var(--muted); text-decoration: underline; text-underline-offset: 2px;
-  }
-  button.link:hover { color: var(--text); }
-  button.wide { display: block; width: 100%; }
+  button:hover { background: var(--chipHi); }
+  button:active { opacity: .6; }
+  button[disabled] { opacity: .32; cursor: default; }
+  button[disabled]:hover { background: var(--chip); }
+  button:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(10, 132, 255, .3); }
 
-  /* 唯一的重色块。旁边不再有同宽的对手，它就是这一屏的目的地 */
+  .chip {
+    height: 20px; min-width: 22px; padding: 0 6px; font-size: 11px;
+    line-height: 20px; color: var(--label2);
+  }
+  .chip:hover { color: var(--label); }
+  .chip.on { background: var(--accent); color: var(--onAccent); }
+  .chip.icon { padding: 0; min-width: 22px; }
+
+  button.link { height: auto; padding: 3px 0; font-size: 11px; background: none; color: var(--label2); }
+  button.link:hover { background: none; color: var(--label); text-decoration: underline; }
+
+  /* 唯一的重色块：这一屏的目的地 */
   button.primary {
-    position: relative; width: 100%; border: none; padding: 10px;
-    background: var(--ink); color: var(--onInk); font-size: 13px; font-weight: 500;
-    border-radius: var(--r); overflow: hidden;
+    position: relative; display: block; width: 100%; height: 32px;
+    font-size: 13px; font-weight: 500; border-radius: 8px;
+    background: var(--accent); color: var(--onAccent); overflow: hidden;
   }
-  button.primary:hover { color: var(--onInk); }
-  button.primary .pfill {
-    position: absolute; left: 0; top: 0; bottom: 0; width: 0;
-    background: var(--brand); opacity: .32; transition: width .3s linear;
-  }
-  button.primary .ptxt { position: relative; }
-  button.primary[disabled] { opacity: .4; }
+  button.primary:hover { background: var(--accent); }
+  button.primary[disabled] { opacity: .3; }
 
-  .why { font-size: 11px; color: var(--muted); margin-top: 5px; }
+  .pfill {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 0;
+    background: var(--label); opacity: .18; transition: width .3s linear;
+  }
+  .ptxt { position: relative; }
+
+  .tools { display: flex; align-items: center; gap: 7px; margin-top: 8px; }
+  .tools .lb { font-size: 11px; color: var(--label3); }
+  .tools input[type=range] { width: 62px; flex: none; }
+  .tools .sp { flex: 1; }
+  @media (max-width: 252px) { .tools { flex-wrap: wrap; } }
 
   textarea {
-    display: block; width: 100%; min-height: 92px; resize: vertical;
-    background: var(--surface); color: var(--text); font: inherit; line-height: 1.6;
-    border: 1px solid var(--border); border-radius: var(--rsm);
-    padding: 8px 9px; outline: none; -webkit-user-select: text;
+    display: block; width: 100%; min-height: 84px; resize: vertical; margin-top: 15px;
+    background: var(--chip); color: var(--label); font: inherit; line-height: 1.55;
+    border: none; border-radius: var(--rsm); padding: 8px 10px; outline: none;
+    -webkit-user-select: text;
   }
-  textarea:focus { border-color: var(--brand); }
+  textarea::placeholder { color: var(--label3); }
+  textarea:focus { box-shadow: inset 0 0 0 2px var(--accent); }
 
-  .slider { display: flex; align-items: center; gap: 8px; margin-top: 9px; font-size: 11px; color: var(--muted); }
-  .slider input[type=range] { flex: 1; accent-color: var(--brand); min-width: 0; }
-  .slider .v { font: 500 11px/1 ui-monospace, "SF Mono", Menlo, monospace; color: var(--text2); min-width: 40px; text-align: right; }
+  input[type=range] { accent-color: var(--accent); }
 
-  /* 第三步：旁白自己的播放器。这一段是面板里唯一由网页直接播的音频 */
-  .player { display: flex; align-items: center; gap: 9px; }
+  .slider { display: flex; align-items: center; gap: 8px; margin-top: 9px; font-size: 11px; color: var(--label3); }
+  .slider input[type=range] { flex: 1; min-width: 0; }
+  .slider .v {
+    font: 500 11px/1 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--label2); min-width: 28px; text-align: right; font-variant-numeric: tabular-nums;
+  }
+  .why { font-size: 11px; color: var(--label3); margin-top: 5px; }
+
+  /* 结果长出来之前，这一屏只到主按钮为止 */
+  .blk { margin-top: 17px; }
+
+  .player { display: flex; align-items: center; gap: 10px; }
   .playBig {
-    width: 32px; height: 32px; padding: 0; flex: none; border-radius: 50%;
-    border: 1px solid var(--border); background: var(--surface);
-    color: var(--text); font-size: 12px; line-height: 1;
+    width: 30px; height: 30px; padding: 0; flex: none; border-radius: 50%; font-size: 11px;
   }
-  .playBig.on { background: var(--brand); border-color: var(--brand); color: #fff; }
-  .ptrack { flex: 1; height: 4px; border-radius: 2px; background: var(--surface2); cursor: pointer; position: relative; }
-  .ptrack .pfill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--brand); border-radius: 2px; }
-  .ptime { font: 500 11px/1 ui-monospace, Menlo, monospace; color: var(--text2); min-width: 62px; text-align: right; }
+  .playBig.on { background: var(--accent); color: var(--onAccent); }
+  .ptrack { flex: 1; height: 5px; border-radius: 3px; background: var(--sunken); cursor: pointer; position: relative; }
+  .ptrack .pfill { background: var(--accent); border-radius: 3px; }
+  .ptime {
+    font: 500 11px/1 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--label2); min-width: 56px; text-align: right; font-variant-numeric: tabular-nums;
+  }
 
-  /* 质检：合成完就该立刻看见「像不像」，不用去日志里翻 */
-  .qc { margin-top: 9px; background: var(--surface); border-radius: var(--rsm); padding: 8px 10px; }
-  .qcRow { display: flex; align-items: baseline; gap: 8px; }
-  .qcRow .lb { font-size: 11px; color: var(--muted); }
-  .qcSim { font: 500 15px/1 ui-monospace, Menlo, monospace; }
-  .qcSim.good { color: var(--ok); }
-  .qcSim.mid { color: var(--bread); }
+  .qc { margin-top: 10px; font-size: 11px; color: var(--label2); }
+  .qcRow { display: flex; align-items: baseline; gap: 6px; }
+  .qcSim { font: 500 13px/1 ui-monospace, "SF Mono", Menlo, monospace; color: var(--label); }
+  /* 念准了是常态，不值得上色；只有念歪了才需要颜色提醒 */
+  .qcSim.mid { color: var(--warn); }
   .qcSim.low { color: var(--bad); }
-  .qcRow .cnt { margin-left: auto; font-size: 11px; color: var(--muted); }
-  .qc details { margin-top: 6px; }
-  .qc summary { font-size: 11px; color: var(--muted); cursor: pointer; }
-  .qc summary:hover { color: var(--text); }
-  .asr { margin-top: 5px; font-size: 11px; line-height: 1.6; color: var(--text2); -webkit-user-select: text; }
-
-  /* 第四步：两个出口，一个拿到外面去，一个就地拼好 */
-  .exit { background: var(--surface); border-radius: var(--rsm); padding: 9px 10px; }
-  .exit + .exit { margin-top: 6px; }
-  .exitHead { font-size: 12px; font-weight: 500; }
-  .exitName {
-    font: 500 12px/1.5 ui-monospace, Menlo, monospace; margin-top: 2px;
-    word-break: break-all; color: var(--text);
+  .qcRow .cnt { color: var(--label3); }
+  .qc details { margin-top: 4px; }
+  .qc summary { font-size: 11px; color: var(--label2); cursor: pointer; list-style: none; }
+  .qc summary::-webkit-details-marker { display: none; }
+  .qc summary .tri { display: inline-block; transition: transform .12s ease; color: var(--label3); }
+  .qc details[open] summary .tri { transform: rotate(90deg); }
+  .asr {
+    margin-top: 4px; font-size: 11px; line-height: 1.6; color: var(--label2);
+    -webkit-user-select: text;
   }
-  .exitRow { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
-  .exitRow button { padding: 4px 9px; font-size: 11px; }
-  .exitRow .mut { font-size: 10px; color: var(--muted); }
-  .stitch { margin-top: 8px; }
 
-  .status {
-    margin-top: var(--g); font-size: 11px; color: var(--muted);
-    min-height: 16px;
+  .outHead { font-size: 11px; color: var(--label3); }
+  .outName {
+    font: 500 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+    word-break: break-all; color: var(--label); margin-top: 2px;
   }
+  .outRow { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+  .outRow button { height: 24px; font-size: 11px; }
+  .outRow .mut { font-size: 11px; color: var(--label3); }
+  .stitch { margin-top: 7px; }
+
+  .status { margin-top: 13px; font-size: 11px; color: var(--label3); min-height: 15px; }
   .status.err { color: var(--bad); }
+
 </style>
 </head>
 <body>
   <div class="top">
-    <div class="brand"><span class="dot off" id="dot"></span><span class="brandName">两面包夹芝士</span></div>
-    <div class="ctx">
+    <span class="dot off" id="dot" title="本机服务的连接状态"></span>
+    <span class="title">两面包夹芝士</span>
+    <span class="tc">
       <span class="file" id="file">未在播放</span>
-      <span class="clock"><span id="pos">--:--</span> / <span id="dur">--:--</span></span>
+      <span id="pos">--:--</span>/<span id="dur">--:--</span>
+    </span>
+  </div>
+
+  <!-- 取样：这条 6px 的浅槽本身就是说明。没打点时它是空的，打过之后才被点亮。 -->
+  <div class="refrange">
+    <div class="refbar empty" id="refbar" title="点一下跳到该处">
+      <div class="fill" id="refFill" style="display:none"></div>
+      <div class="edge" id="refEdgeA" style="display:none"></div>
+      <div class="edge" id="refEdgeC" style="display:none"></div>
+      <div class="rb" id="rbB" style="display:none"></div>
+      <div class="rhead" id="rhead" style="display:none"></div>
+    </div>
+    <div class="refmeta">
+      <span class="hint" id="refEmpty">取样：Alt+A 起点 · Alt+S 终点</span>
+      <span id="rbLen"></span>
     </div>
   </div>
 
-  <!-- 01 取样：告诉它照着哪一段说话。这一步只需要 A 和 C，没有 B 的位置。 -->
-  <section class="grp">
-    <div class="grpHead">
-      <span class="step">01</span><span class="grpTitle">照着哪一段说</span>
-      <span class="spacer"></span>
-      <button class="link" id="btnReset">清空</button>
-    </div>
-
-    <div class="refwrap">
-      <div class="refbar empty" id="refbar" title="点一下跳到该处">
-        <div class="fill" id="refFill" style="display:none"></div>
-        <div class="edge" id="refEdgeA" style="display:none"></div>
-        <div class="edge" id="refEdgeC" style="display:none"></div>
-        <div class="rb" id="rbB" style="display:none"></div>
-        <div class="rhead" id="rhead" style="display:none"></div>
-        <div class="empty" id="refEmpty">在原声上取一段当样本</div>
-      </div>
-      <div class="refmeta"><span id="rbA">A 未打点</span><span id="rbLen"></span><span id="rbC">C 未打点</span></div>
-    </div>
-
-    <div class="card" data-role="A">
-      <div class="cardTop">
-        <span class="role">A</span>
-        <span class="cv unset" id="lvA">未打点</span>
-        <span class="spacer"></span>
-        <button class="chip" data-set="A">打点</button>
-        <button class="chip icon" id="lpA" data-play="a" title="听这一小段">▶</button>
-      </div>
+  <div class="lanes">
+    <div class="lane" data-role="a">
       <canvas id="lcA"></canvas>
-    </div>
-
-    <div class="card" data-role="C">
-      <div class="cardTop">
-        <span class="role">C</span>
-        <span class="cv unset" id="lvC">未打点</span>
-        <span class="spacer"></span>
-        <button class="chip" data-set="C">打点</button>
-        <button class="chip icon" id="lpC" data-play="c" title="听这一小段">▶</button>
+      <span class="laneTag">A</span>
+      <div class="laneTop">
+        <span class="cv unset" id="lvA">未打点</span>
+        <button class="chip icon" id="lpA" data-play="a" title="听这一小段">▶</button>
+        <button class="chip icon" data-set="A" title="把播放头所在处设为 A">•</button>
       </div>
+    </div>
+    <div class="lane" data-role="c">
       <canvas id="lcC"></canvas>
+      <span class="laneTag">C</span>
+      <div class="laneTop">
+        <span class="cv unset" id="lvC">未打点</span>
+        <button class="chip icon" id="lpC" data-play="c" title="听这一小段">▶</button>
+        <button class="chip icon" data-set="C" title="把播放头所在处设为 C">•</button>
+      </div>
     </div>
+  </div>
 
-    <div class="slider" style="margin-top:8px">
-      <span>波形宽度</span>
-      <input type="range" id="zoom" min="0" max="5" step="1" value="2">
-      <span class="v" id="zoom-v">±1.00s</span>
-    </div>
-    <div style="margin-top:8px">
-      <button class="wide" id="btnPrev">听这一段</button>
-    </div>
-  </section>
+  <div class="tools">
+    <span class="lb">波形</span>
+    <input type="range" id="zoom" min="0" max="5" step="1" value="2" title="这一轴看多宽，决定能微调到多细">
+    <span class="lb" id="zoom-v">±1.00s</span>
+    <span class="sp"></span>
+    <button class="link" id="btnReset">清空</button>
+    <button id="btnPrev" title="听 A→C 这整段，旁白就照它的语气来">听这一段</button>
+  </div>
 
-  <!-- 02 写稿并合成：一屏唯一的重操作 -->
-  <section class="grp">
-    <div class="grpHead"><span class="step">02</span><span class="grpTitle">补上这一句</span></div>
-    <textarea id="text" placeholder="写下这段话，它会用片子里自己的声音说出来……"></textarea>
-    <div class="slider">
-      <span>语速</span>
-      <input type="range" id="speed" min="0.7" max="1.4" step="0.05" value="1.0">
-      <span class="v" id="speed-v">1.00</span>
-    </div>
-    <div style="margin-top:11px">
-      <button class="primary" id="btnGen" disabled>
-        <span class="pfill" id="genFill"></span>
-        <span class="ptxt" id="genTxt">合成旁白</span>
-      </button>
-    </div>
-    <div class="why" id="genWhy"></div>
-  </section>
+  <textarea id="text" placeholder="写下这段话，它会用片子里自己的声音说出来……"></textarea>
 
-  <!-- 03 试听：合成完最先要过的是这一关，满意了才有第四步 -->
-  <section class="grp" id="g3" style="display:none">
-    <div class="grpHead"><span class="step">03</span><span class="grpTitle">听一句像不像</span></div>
+  <div class="slider">
+    <span>语速</span>
+    <input type="range" id="speed" min="0.7" max="1.4" step="0.05" value="1.0">
+    <span class="v" id="speed-v">1.00</span>
+  </div>
+
+  <div style="margin-top:11px">
+    <button class="primary" id="btnGen" disabled>
+      <span class="pfill" id="genFill"></span>
+      <span class="ptxt" id="genTxt">合成旁白</span>
+    </button>
+  </div>
+  <div class="why" id="genWhy"></div>
+
+  <!-- 听过才算数：满意了才有下面的出口 -->
+  <div class="blk" id="g3" style="display:none">
     <div class="player">
       <button class="playBig" id="btnNarPlay" title="播放这一段旁白">▶</button>
       <div class="ptrack" id="narTrack"><div class="pfill" id="narFill"></div></div>
@@ -312,44 +315,41 @@
     <audio id="narAudio" preload="metadata"></audio>
     <div class="qc" id="qcBox" style="display:none">
       <div class="qcRow">
-        <span class="lb">念得准不准</span>
         <span class="qcSim" id="qcSim">--</span>
+        <span>念准了</span>
         <span class="cnt" id="qcCnt"></span>
       </div>
       <details>
-        <summary>它实际念出来的是</summary>
+        <summary><span class="tri">▶</span> 它实际念出来的是</summary>
         <div class="asr" id="qcAsr"></div>
       </details>
     </div>
-  </section>
+  </div>
 
-  <!-- 04 去向：满意之后才轮到这两个出口，B 只住在第二个里面 -->
-  <section class="grp" id="g4" style="display:none">
-    <div class="grpHead"><span class="step">04</span><span class="grpTitle">然后去哪儿</span></div>
-
-    <div class="exit">
-      <div class="exitHead" id="exitHead">拿到剪辑软件里</div>
-      <div class="exitName" id="outName"></div>
-      <div class="exitRow">
-        <button id="btnReveal">在访达中显示</button>
-        <span class="mut" id="exitNote">拖进你自己的时间线</span>
-      </div>
+  <div class="blk" id="g4" style="display:none">
+    <div class="outHead" id="exitHead"></div>
+    <div class="outName" id="outName"></div>
+    <div class="outRow">
+      <button id="btnReveal">在访达中显示</button>
+      <span class="mut" id="exitNote"></span>
     </div>
-
-    <div class="exit" id="exitStitch">
-      <button class="link" id="btnStitchToggle">或者，就在这里插回去</button>
-      <div class="stitch" id="stitchBox" style="display:none">
-        <div class="card" data-role="B">
-          <div class="cardTop">
-            <span class="role">B</span>
-            <span class="cv unset" id="lvB">未打点</span>
-            <span class="spacer"></span>
-            <button class="chip" data-set="B">打点</button>
-            <button class="chip icon" id="lpB" data-play="b" title="听这一小段">▶</button>
+    <div id="exitStitch">
+      <div class="stitch">
+        <button class="link" id="btnStitchToggle">或者，就在这里插回去</button>
+      </div>
+      <div id="stitchBox" style="display:none">
+        <div class="lanes">
+          <div class="lane" data-role="b">
+            <canvas id="lcB"></canvas>
+            <span class="laneTag">B</span>
+            <div class="laneTop">
+              <span class="cv unset" id="lvB">未打点</span>
+              <button class="chip icon" id="lpB" data-play="b" title="听这一小段">▶</button>
+              <button class="chip icon" data-set="B" title="把播放头所在处设为 B">•</button>
+            </div>
           </div>
-          <canvas id="lcB"></canvas>
         </div>
-        <div style="margin-top:8px">
+        <div style="margin-top:9px">
           <button class="primary" id="btnGen2" disabled>
             <span class="pfill" id="gen2Fill"></span>
             <span class="ptxt" id="gen2Txt">合成成品</span>
@@ -358,7 +358,7 @@
         <div class="why" id="gen2Why"></div>
       </div>
     </div>
-  </section>
+  </div>
 
   <div class="status" id="st"></div>
 
@@ -557,7 +557,7 @@
   var pending = { a: false, b: false, c: false };
   var dragging = null;
   var CSSV = {};
-  var LANE_H = 40;
+  var LANE_H = 48;
 
   function readCss() {
     var s = getComputedStyle(document.documentElement);
@@ -794,8 +794,6 @@
     el("refEdgeA").style.display = ok ? "block" : "none";
     el("refEdgeC").style.display = ok ? "block" : "none";
     if (!ok) {
-      el("rbA").textContent = "A 未打点";
-      el("rbC").textContent = "C 未打点";
       el("rbLen").textContent = "";
       el("rbB").style.display = "none";
       el("rhead").style.display = "none";
@@ -819,9 +817,7 @@
     el("rhead").style.display = inside ? "block" : "none";
     if (inside) el("rhead").style.left = at(st.pos);
 
-    el("rbA").textContent = fmtMs(st.a);
-    el("rbC").textContent = fmtMs(st.c);
-    el("rbLen").textContent = span.toFixed(2) + "s" +
+    el("rbLen").textContent = "取样 " + span.toFixed(2) + " 秒" +
       (hasB ? " · B 在 " + (st.b - st.a).toFixed(2) + "s" : "");
 
     // 正在播的就是 A→C 时把这条点亮，说明「现在听的是这一段」
@@ -954,7 +950,7 @@
                     nar.load();
                   }
                   st.msg = (st.result && st.result.mode === "narration")
-                    ? "听着行就往下走第 04 步"
+                    ? "听着行就往下"
                     : "成品已生成，就在下方";
                   var pc = st.result && st.result.pace;
                   if (pc && pc.reason) st.msg = "语速对齐：" + pc.reason + "。" + st.msg;
@@ -986,7 +982,7 @@
     return m;
   }
   function missingStitch() {
-    if (!st.result) return "先在第 02 步合成旁白";
+    if (!st.result) return "先把旁白合成出来";
     if (st.b === null) return "打上插入点 B：旁白会从这里插进去";
     if (!(st.a < st.b && st.b < st.c)) return "B 要落在 A 和 C 之间";
     return "";
