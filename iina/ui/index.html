@@ -6,245 +6,361 @@
 <title>两面包夹芝士</title>
 <style>
   :root {
-    --bg: #ffffff;
-    --surface: #f2f2f7;
-    --border: rgba(60, 60, 67, 0.18);
-    --text: #1c1c1e;
-    --muted: #8a8a8e;
-    --accent: #d8893b;
-    --accent-text: #ffffff;
-    --bread: #9a7b4f;
-    --cheese: #e0a458;
-    --ok: #1d9e75;
-    --bad: #c0392b;
+    --bg: #fbfaf8;
+    --surface: #f2efe9;
+    --surface2: #e7e3da;
+    --border: rgba(60, 60, 67, 0.14);
+    --text: #1d1b18;
+    --text2: #6b655c;
+    --muted: #9a948a;
+    --brand: #cf9413;
+    --bread: #8a6a3d;
+    --ink: #241d16;
+    --onInk: #fdfbf7;
+    --ok: #2f8f6b;
+    --bad: #bd4b3c;
+    --r: 9px;
+    --rsm: 6px;
+    --g: 18px;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #1e1e1e;
-      --surface: #2a2a2c;
-      --border: rgba(255, 255, 255, 0.14);
-      --text: #f2f2f7;
-      --muted: #98989d;
-      --accent: #e0a458;
-      --accent-text: #2c1e08;
-      --bread: #c8a97a;
-      --cheese: #f0bf72;
-      --ok: #35c79a;
-      --bad: #e8736a;
+      --bg: #191714;
+      --surface: #232019;
+      --surface2: #2c281f;
+      --border: rgba(255, 255, 255, 0.12);
+      --text: #f2ece1;
+      --text2: #a8a196;
+      --muted: #7d776d;
+      --brand: #e6b155;
+      --bread: #c2a276;
+      --ink: #e6b155;
+      --onInk: #241a0c;
+      --ok: #4dbf95;
+      --bad: #e58072;
     }
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    padding: 12px;
+    padding: 14px 14px 16px;
     background: var(--bg);
     color: var(--text);
-    font: 13px/1.5 -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+    font: 13px/1.55 -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
     -webkit-user-select: none;
   }
-  h1 { margin: 0 0 10px; font-size: 13px; font-weight: 600; letter-spacing: .02em; }
-  .file {
-    font-size: 11px; color: var(--muted);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    margin-bottom: 2px;
-  }
-  .clock {
-    font: 500 20px/1.2 ui-monospace, "SF Mono", Menlo, monospace;
-    letter-spacing: -.02em; margin-bottom: 10px;
-  }
-  .clock small { font-size: 12px; color: var(--muted); font-weight: 400; }
 
-  .field { margin-bottom: 10px; }
-  .label { font-size: 11px; color: var(--muted); margin-bottom: 4px; display: block; }
-  textarea {
-    width: 100%; min-height: 62px; resize: vertical;
-    background: var(--surface); color: var(--text);
-    border: 1px solid var(--border); border-radius: 6px;
-    padding: 7px 8px; font: inherit; outline: none;
-    -webkit-user-select: text;
+  /* 顶部是上下文，不是功能：文件名、时间码、服务是否在线 */
+  .top { display: flex; align-items: baseline; gap: 8px; margin-bottom: var(--g); }
+  .brand { display: flex; align-items: center; gap: 6px; flex: none; }
+  .brandName { font-size: 13px; font-weight: 500; letter-spacing: .01em; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.on { background: var(--ok); }
+  .dot.off { background: var(--bad); }
+  .ctx { margin-left: auto; text-align: right; min-width: 0; }
+  .ctx .file {
+    display: block; font-size: 11px; color: var(--muted);
+    max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  textarea:focus { border-color: var(--accent); }
+  .ctx .clock {
+    font: 500 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--text2);
+  }
+
+  /* 组：四步。组间距远大于组内间距，眼睛自然读出「先做哪一步」 */
+  .grp + .grp { margin-top: var(--g); }
+  .grpHead { display: flex; align-items: baseline; gap: 7px; margin-bottom: 8px; }
+  .step {
+    font: 500 10px/1 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--muted); letter-spacing: .06em; padding-top: 2px;
+  }
+  .grpTitle { font-size: 13px; font-weight: 500; }
+  .grpHead .spacer { flex: 1; }
+
+  /* 参考条：这条常驻。没打点时它是空骨架 —— 它本身就是说明书，
+     告诉用户「要在原声上取一段」，而不是等两个数齐了才冒出来。 */
+  .refwrap { margin-bottom: 9px; }
+  .refbar {
+    position: relative; height: 34px; border-radius: var(--rsm);
+    background: var(--surface); overflow: hidden; cursor: pointer;
+  }
+  .refbar.empty { background: var(--surface); box-shadow: inset 0 0 0 1px var(--border); }
+  .refbar .fill { position: absolute; top: 0; bottom: 0; background: var(--bread); opacity: .22; }
+  .refbar .edge { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--bread); }
+  .refbar .rb { position: absolute; top: 0; bottom: 0; width: 3px; background: var(--brand); }
+  .refbar .rhead { position: absolute; top: 0; bottom: 0; width: 1.5px; background: var(--text); }
+  .refbar .rhead::before {
+    content: ""; position: absolute; top: 0; left: -2px;
+    border: 3px solid transparent; border-top-color: var(--text);
+  }
+  .refbar .empty {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 11px; color: var(--muted);
+  }
+  .refbar.on { box-shadow: inset 0 0 0 1.5px var(--brand); }
+  .refmeta {
+    display: flex; justify-content: space-between; gap: 8px;
+    font: 500 10px/1.6 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted);
+  }
+
+  /* 一张卡一个时间点：标签、值、两个操作都在同一张卡里。
+     A/C 用的是同一套结构，B 也是 —— 只是 B 住在第四步。 */
+  .card { background: var(--surface); border-radius: var(--rsm); padding: 7px 8px 6px; }
+  .card + .card { margin-top: 6px; }
+  .cardTop { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; }
+  .role {
+    width: 18px; height: 18px; border-radius: 50%; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    font: 500 10px/1 ui-monospace, Menlo, monospace; color: #fff;
+  }
+  [data-role="A"] .role, [data-role="C"] .role { background: var(--bread); }
+  [data-role="B"] .role { background: var(--brand); }
+  .card .cv {
+    font: 500 13px/1 ui-monospace, "SF Mono", Menlo, monospace; color: var(--text);
+  }
+  .card .cv.unset { color: var(--muted); font-weight: 400; }
+  .chip {
+    border: 1px solid var(--border); background: var(--bg); color: var(--text2);
+    border-radius: 5px; padding: 1px 7px; font-size: 11px; cursor: pointer;
+    line-height: 18px; height: 20px;
+  }
+  .chip:hover { color: var(--text); border-color: var(--text2); }
+  .chip.icon { padding: 1px 6px; min-width: 24px; }
+  .chip.on { color: var(--brand); border-color: var(--brand); }
+  .card canvas {
+    display: block; width: 100%; height: 40px; border-radius: 5px;
+    background: var(--bg); cursor: ew-resize; touch-action: none;
+  }
 
   button {
     font: inherit; cursor: pointer;
-    border: 1px solid var(--border); border-radius: 6px;
-    background: var(--surface); color: var(--text);
-    padding: 6px 10px;
+    border: 1px solid var(--border); border-radius: var(--rsm);
+    background: var(--surface); color: var(--text2); padding: 6px 10px;
   }
-  button:active { opacity: .7; }
+  button:hover { color: var(--text); }
+  button:active { opacity: .65; }
+  button[disabled] { opacity: .45; cursor: default; }
+  button[disabled]:hover { color: var(--text2); }
+  button.link {
+    border: none; background: none; padding: 2px 0; font-size: 11px;
+    color: var(--muted); text-decoration: underline; text-underline-offset: 2px;
+  }
+  button.link:hover { color: var(--text); }
+  button.wide { display: block; width: 100%; }
+
+  /* 唯一的重色块。旁边不再有同宽的对手，它就是这一屏的目的地 */
   button.primary {
-    background: var(--accent); color: var(--accent-text);
-    border-color: transparent; font-weight: 500; width: 100%; padding: 9px;
+    position: relative; width: 100%; border: none; padding: 10px;
+    background: var(--ink); color: var(--onInk); font-size: 13px; font-weight: 500;
+    border-radius: var(--r); overflow: hidden;
   }
-  button.primary:disabled { opacity: .4; cursor: default; }
-  button.tiny { padding: 3px 7px; font-size: 11px; }
+  button.primary:hover { color: var(--onInk); }
+  button.primary .pfill {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 0;
+    background: var(--brand); opacity: .32; transition: width .3s linear;
+  }
+  button.primary .ptxt { position: relative; }
+  button.primary[disabled] { opacity: .4; }
 
-  .marks { display: flex; gap: 6px; margin-bottom: 10px; }
-  .mark {
-    flex: 1; padding: 7px 6px; border-radius: 6px;
-    background: var(--surface); border: 1px solid var(--border); text-align: center;
-  }
-  .mark .k { font-size: 10px; color: var(--muted); display: block; }
-  .mark .v {
-    font: 500 13px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
-    display: block; margin: 1px 0 4px;
-  }
-  .mark.set { border-color: var(--accent); }
-  .mark[data-role="A"] .v, .mark[data-role="C"] .v { color: var(--bread); }
-  .mark[data-role="B"] .v { color: var(--cheese); }
+  .why { font-size: 11px; color: var(--muted); margin-top: 5px; }
 
-  /* 三条微调轨道：同一段波形画三遍，各自以自己的打点为中心。
-     中间那条固定的竖线才是打点的位置 —— 左右拖波形，就是把这个点挪到别处。 */
-  .lanes { margin-bottom: 8px; }
-  .lane { margin-bottom: 7px; }
-  .laneHead {
-    display: flex; align-items: baseline; gap: 6px;
-    font-size: 10px; color: var(--muted); margin-bottom: 3px;
+  textarea {
+    display: block; width: 100%; min-height: 92px; resize: vertical;
+    background: var(--surface); color: var(--text); font: inherit; line-height: 1.6;
+    border: 1px solid var(--border); border-radius: var(--rsm);
+    padding: 8px 9px; outline: none; -webkit-user-select: text;
   }
-  .laneHead .k { font-weight: 600; font-size: 11px; }
-  .laneHead .v {
-    font: 500 12px/1 ui-monospace, "SF Mono", Menlo, monospace;
-    color: var(--text);
-  }
-  .laneHead .hint { margin-left: auto; opacity: .8; }
-  /* 轨道自己的播放键：播的就是这条轴上看到的那一小段 */
-  .mini {
-    padding: 0 6px; height: 18px; line-height: 16px; font-size: 10px;
-    border-radius: 4px; border: 1px solid var(--border);
-    background: var(--surface); color: var(--muted); cursor: pointer;
-  }
-  .mini.on { color: var(--accent); border-color: var(--accent); }
-  .lane[data-role="A"] .k, .lane[data-role="C"] .k { color: var(--bread); }
-  .lane[data-role="B"] .k { color: var(--cheese); }
-  .lane canvas {
-    display: block; width: 100%; height: 46px;
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 5px; cursor: ew-resize; touch-action: none;
-  }
-  .zoom {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 11px; color: var(--muted); margin-bottom: 10px;
-  }
-  .zoom .label { margin: 0; }
-  .zoom input[type=range] { flex: 1; accent-color: var(--accent); }
-  .zoom .v {
-    font: 500 11px/1 ui-monospace, "SF Mono", Menlo, monospace;
-    color: var(--text); min-width: 46px; text-align: right;
-  }
+  textarea:focus { border-color: var(--brand); }
 
-  .row { display: flex; gap: 6px; margin-bottom: 10px; }
-  .row button { flex: 1; }
+  .slider { display: flex; align-items: center; gap: 8px; margin-top: 9px; font-size: 11px; color: var(--muted); }
+  .slider input[type=range] { flex: 1; accent-color: var(--brand); min-width: 0; }
+  .slider .v { font: 500 11px/1 ui-monospace, "SF Mono", Menlo, monospace; color: var(--text2); min-width: 40px; text-align: right; }
 
-  /* A→C 试听条。整片进度没必要在面板里再画一条 —— 播放器自己就有。
-     这里只关心旁白要照着来的那一段：播到哪儿、B 插在哪儿。 */
-  .refwrap { margin-bottom: 10px; }
-  .refbar {
-    height: 22px; background: var(--surface); border-radius: 5px;
-    position: relative; overflow: hidden; cursor: pointer;
-    border: 1px solid var(--border);
+  /* 第三步：旁白自己的播放器。这一段是面板里唯一由网页直接播的音频 */
+  .player { display: flex; align-items: center; gap: 9px; }
+  .playBig {
+    width: 32px; height: 32px; padding: 0; flex: none; border-radius: 50%;
+    border: 1px solid var(--border); background: var(--surface);
+    color: var(--text); font-size: 12px; line-height: 1;
   }
-  .refbar.on { border-color: var(--accent); }
-  .refbar .fill { position: absolute; top: 0; bottom: 0; left: 0; right: 0; background: var(--bread); opacity: .35; }
-  .refbar .rb { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--cheese); }
-  .refbar .rhead { position: absolute; top: 0; bottom: 0; width: 1.5px; background: var(--text); }
-  .refmeta {
-    display: flex; justify-content: space-between; gap: 8px;
-    font-size: 10px; color: var(--muted); margin-top: 3px;
-  }
-  .refmeta .v { font: 500 10px/1 ui-monospace, "SF Mono", Menlo, monospace; }
+  .playBig.on { background: var(--brand); border-color: var(--brand); color: #fff; }
+  .ptrack { flex: 1; height: 4px; border-radius: 2px; background: var(--surface2); cursor: pointer; position: relative; }
+  .ptrack .pfill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--brand); border-radius: 2px; }
+  .ptime { font: 500 11px/1 ui-monospace, Menlo, monospace; color: var(--text2); min-width: 62px; text-align: right; }
 
-  .speed {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 11px; color: var(--muted);
+  /* 质检：合成完就该立刻看见「像不像」，不用去日志里翻 */
+  .qc { margin-top: 9px; background: var(--surface); border-radius: var(--rsm); padding: 8px 10px; }
+  .qcRow { display: flex; align-items: baseline; gap: 8px; }
+  .qcRow .lb { font-size: 11px; color: var(--muted); }
+  .qcSim { font: 500 15px/1 ui-monospace, Menlo, monospace; }
+  .qcSim.good { color: var(--ok); }
+  .qcSim.mid { color: var(--bread); }
+  .qcSim.low { color: var(--bad); }
+  .qcRow .cnt { margin-left: auto; font-size: 11px; color: var(--muted); }
+  .qc details { margin-top: 6px; }
+  .qc summary { font-size: 11px; color: var(--muted); cursor: pointer; }
+  .qc summary:hover { color: var(--text); }
+  .asr { margin-top: 5px; font-size: 11px; line-height: 1.6; color: var(--text2); -webkit-user-select: text; }
+
+  /* 第四步：两个出口，一个拿到外面去，一个就地拼好 */
+  .exit { background: var(--surface); border-radius: var(--rsm); padding: 9px 10px; }
+  .exit + .exit { margin-top: 6px; }
+  .exitHead { font-size: 12px; font-weight: 500; }
+  .exitName {
+    font: 500 12px/1.5 ui-monospace, Menlo, monospace; margin-top: 2px;
+    word-break: break-all; color: var(--text);
   }
-  .speed .label { margin: 0; }
-  .speed input[type=range] { flex: 1; accent-color: var(--accent); }
-  .speed .v {
-    font: 500 12px/1 ui-monospace, "SF Mono", Menlo, monospace;
-    color: var(--text); min-width: 32px; text-align: right;
-  }
+  .exitRow { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+  .exitRow button { padding: 4px 9px; font-size: 11px; }
+  .exitRow .mut { font-size: 10px; color: var(--muted); }
+  .stitch { margin-top: 8px; }
 
   .status {
-    margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--border);
-    font-size: 11px; color: var(--muted);
+    margin-top: var(--g); font-size: 11px; color: var(--muted);
+    min-height: 16px;
   }
-  .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; }
-  .dot.on { background: var(--ok); }
-  .dot.off { background: var(--bad); }
+  .status.err { color: var(--bad); }
 </style>
 </head>
 <body>
-  <h1>两面包夹芝士</h1>
-  <div class="file" id="file">未在播放</div>
-  <div class="clock"><span id="pos">--:--</span><small id="dur"> / --:--</small></div>
-
-  <div class="marks">
-    <div class="mark" id="mA" data-role="A"><span class="k">A 面包起</span><span class="v">--</span><button class="tiny" data-set="A">打点</button></div>
-    <div class="mark" id="mB" data-role="B"><span class="k">B 插入点</span><span class="v">--</span><button class="tiny" data-set="B">打点</button></div>
-    <div class="mark" id="mC" data-role="C"><span class="k">C 面包终</span><span class="v">--</span><button class="tiny" data-set="C">打点</button></div>
-  </div>
-
-  <div class="refwrap" id="refWrap" style="display:none">
-    <div class="refbar" id="refbar" title="点一下跳到该处">
-      <div class="fill"></div>
-      <div class="rb" id="rbB" style="display:none"></div>
-      <div class="rhead" id="rhead" style="display:none"></div>
+  <div class="top">
+    <div class="brand"><span class="dot off" id="dot"></span><span class="brandName">两面包夹芝士</span></div>
+    <div class="ctx">
+      <span class="file" id="file">未在播放</span>
+      <span class="clock"><span id="pos">--:--</span> / <span id="dur">--:--</span></span>
     </div>
-    <div class="refmeta"><span id="rbA">A</span><span id="rbLen"></span><span id="rbC">C</span></div>
   </div>
 
-  <div class="lanes">
-    <div class="lane" data-role="A">
-      <div class="laneHead"><span class="k">A 面包起</span><span class="v" id="lvA">未打点</span><button class="mini" id="lpA" data-play="a" title="播放这条轴上看到的这一小段">▶</button><span class="hint">拖波形微调</span></div>
+  <!-- 01 取样：告诉它照着哪一段说话。这一步只需要 A 和 C，没有 B 的位置。 -->
+  <section class="grp">
+    <div class="grpHead">
+      <span class="step">01</span><span class="grpTitle">照着哪一段说</span>
+      <span class="spacer"></span>
+      <button class="link" id="btnReset">清空</button>
+    </div>
+
+    <div class="refwrap">
+      <div class="refbar empty" id="refbar" title="点一下跳到该处">
+        <div class="fill" id="refFill" style="display:none"></div>
+        <div class="edge" id="refEdgeA" style="display:none"></div>
+        <div class="edge" id="refEdgeC" style="display:none"></div>
+        <div class="rb" id="rbB" style="display:none"></div>
+        <div class="rhead" id="rhead" style="display:none"></div>
+        <div class="empty" id="refEmpty">在原声上取一段当样本</div>
+      </div>
+      <div class="refmeta"><span id="rbA">A 未打点</span><span id="rbLen"></span><span id="rbC">C 未打点</span></div>
+    </div>
+
+    <div class="card" data-role="A">
+      <div class="cardTop">
+        <span class="role">A</span>
+        <span class="cv unset" id="lvA">未打点</span>
+        <span class="spacer"></span>
+        <button class="chip" data-set="A">打点</button>
+        <button class="chip icon" id="lpA" data-play="a" title="听这一小段">▶</button>
+      </div>
       <canvas id="lcA"></canvas>
     </div>
-    <div class="lane" data-role="B">
-      <div class="laneHead"><span class="k">B 插入点</span><span class="v" id="lvB">未打点</span><button class="mini" id="lpB" data-play="b" title="播放这条轴上看到的这一小段">▶</button><span class="hint">拖波形微调</span></div>
-      <canvas id="lcB"></canvas>
-    </div>
-    <div class="lane" data-role="C">
-      <div class="laneHead"><span class="k">C 面包终</span><span class="v" id="lvC">未打点</span><button class="mini" id="lpC" data-play="c" title="播放这条轴上看到的这一小段">▶</button><span class="hint">拖波形微调</span></div>
+
+    <div class="card" data-role="C">
+      <div class="cardTop">
+        <span class="role">C</span>
+        <span class="cv unset" id="lvC">未打点</span>
+        <span class="spacer"></span>
+        <button class="chip" data-set="C">打点</button>
+        <button class="chip icon" id="lpC" data-play="c" title="听这一小段">▶</button>
+      </div>
       <canvas id="lcC"></canvas>
     </div>
-  </div>
 
-  <div class="zoom">
-    <span class="label">波形宽度</span>
-    <input type="range" id="zoom" min="0" max="5" step="1" value="2">
-    <span class="v" id="zoom-v">±1.00s</span>
-  </div>
+    <div class="slider" style="margin-top:8px">
+      <span>波形宽度</span>
+      <input type="range" id="zoom" min="0" max="5" step="1" value="2">
+      <span class="v" id="zoom-v">±1.00s</span>
+    </div>
+    <div style="margin-top:8px">
+      <button class="wide" id="btnPrev">听这一段</button>
+    </div>
+  </section>
 
-  <div class="row">
-    <button id="btnPrev">试听 Alt+P</button>
-    <button id="btnReset">清空</button>
-  </div>
-
-  <div class="field">
-    <span class="label">要补的旁白</span>
+  <!-- 02 写稿并合成：一屏唯一的重操作 -->
+  <section class="grp">
+    <div class="grpHead"><span class="step">02</span><span class="grpTitle">补上这一句</span></div>
     <textarea id="text" placeholder="写下这段话，它会用片子里自己的声音说出来……"></textarea>
-  </div>
+    <div class="slider">
+      <span>语速</span>
+      <input type="range" id="speed" min="0.7" max="1.4" step="0.05" value="1.0">
+      <span class="v" id="speed-v">1.00</span>
+    </div>
+    <div style="margin-top:11px">
+      <button class="primary" id="btnGen" disabled>
+        <span class="pfill" id="genFill"></span>
+        <span class="ptxt" id="genTxt">合成旁白</span>
+      </button>
+    </div>
+    <div class="why" id="genWhy"></div>
+  </section>
 
-  <div class="field speed">
-    <span class="label">语速</span>
-    <input type="range" id="speed" min="0.7" max="1.4" step="0.05" value="1.0">
-    <span class="v" id="speed-v">1.00</span>
-  </div>
+  <!-- 03 试听：合成完最先要过的是这一关，满意了才有第四步 -->
+  <section class="grp" id="g3" style="display:none">
+    <div class="grpHead"><span class="step">03</span><span class="grpTitle">听一句像不像</span></div>
+    <div class="player">
+      <button class="playBig" id="btnNarPlay" title="播放这一段旁白">▶</button>
+      <div class="ptrack" id="narTrack"><div class="pfill" id="narFill"></div></div>
+      <span class="ptime" id="narTime">0:00 / 0:00</span>
+    </div>
+    <audio id="narAudio" preload="metadata"></audio>
+    <div class="qc" id="qcBox" style="display:none">
+      <div class="qcRow">
+        <span class="lb">念得准不准</span>
+        <span class="qcSim" id="qcSim">--</span>
+        <span class="cnt" id="qcCnt"></span>
+      </div>
+      <details>
+        <summary>它实际念出来的是</summary>
+        <div class="asr" id="qcAsr"></div>
+      </details>
+    </div>
+  </section>
 
-  <!-- 两件事分开：先只合成旁白听一句，满意了再插回原声 -->
-  <div class="row">
-    <button id="btnNar" disabled title="只用 A→C 的音色念出来，不碰原声">只合成旁白</button>
-    <button class="primary" id="btnGen" disabled title="切成 A→B + 旁白 + B→C">合成并插回去</button>
-  </div>
+  <!-- 04 去向：满意之后才轮到这两个出口，B 只住在第二个里面 -->
+  <section class="grp" id="g4" style="display:none">
+    <div class="grpHead"><span class="step">04</span><span class="grpTitle">然后去哪儿</span></div>
 
-  <div class="status"><span class="dot off" id="dot"></span><span id="st">正在连接</span></div>
+    <div class="exit">
+      <div class="exitHead" id="exitHead">拿到剪辑软件里</div>
+      <div class="exitName" id="outName"></div>
+      <div class="exitRow">
+        <button id="btnReveal">在访达中显示</button>
+        <span class="mut" id="exitNote">拖进你自己的时间线</span>
+      </div>
+    </div>
 
-  <!-- 生成完成后展开：给出成品的真实路径，并能直接在访达里选中 -->
-  <div id="outBox" style="display:none;margin-top:8px;padding:8px 10px;
-       border:1px solid var(--border);border-radius:8px;background:var(--surface)">
-    <div id="outPath" style="font-size:11px;line-height:1.5;word-break:break-all;
-         color:var(--muted);margin-bottom:6px"></div>
-    <button id="btnReveal" style="font-size:12px;padding:4px 10px">在访达中显示</button>
-  </div>
+    <div class="exit" id="exitStitch">
+      <button class="link" id="btnStitchToggle">或者，就在这里插回去</button>
+      <div class="stitch" id="stitchBox" style="display:none">
+        <div class="card" data-role="B">
+          <div class="cardTop">
+            <span class="role">B</span>
+            <span class="cv unset" id="lvB">未打点</span>
+            <span class="spacer"></span>
+            <button class="chip" data-set="B">打点</button>
+            <button class="chip icon" id="lpB" data-play="b" title="听这一小段">▶</button>
+          </div>
+          <canvas id="lcB"></canvas>
+        </div>
+        <div style="margin-top:8px">
+          <button class="primary" id="btnGen2" disabled>
+            <span class="pfill" id="gen2Fill"></span>
+            <span class="ptxt" id="gen2Txt">合成成品</span>
+          </button>
+        </div>
+        <div class="why" id="gen2Why"></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="status" id="st"></div>
 
 <script>
 (function () {
@@ -253,6 +369,7 @@
   var st = {
     pos: 0, dur: 0, file: "", path: "", a: null, b: null, c: null,
     backend: false, job: null, msg: "", notice: null, result: null,
+    stageProgress: 0,
     // 插件推来的区间播放状态；playRole 是本地记的「最后按的是哪条轴的播放键」
     playing: false, prange: null, playRole: null,
   };
@@ -286,8 +403,7 @@
   /*
    * 官方消息桥。IINA 在文档创建时就把 window.iina 注入进插件页面
    * （postMessage 走 webkit.messageHandlers.iina，onMessage 收插件推来的消息），
-   * 插件侧对应的就是 iina.sidebar.postMessage / onMessage —— 即时双向，不用轮询，
-   * 也不必让后端在中间传话。能用就用，用不了才退回后端会话那一套。
+   * 插件侧对应的就是 iina.sidebar.postMessage / onMessage —— 即时双向，不用轮询。
    */
   /*
    * 即便 window.iina 存在，也不能假定这条通路一定送得过来 —— 插件侧如果没接住
@@ -425,74 +541,9 @@
     send("clearMarks");
   }
 
-  /**
-   * mode = "narration" 只合成旁白（不切面包、不拼接）；
-   * mode = "sandwich" 才是完整的两面包夹芝士。两者共用同一条流水线，
-   * 差别只在后端要不要继续做下去。
-   */
-  function run(mode) {
-    if (!st.path) { st.msg = "先在播放器里打开一个文件"; paint(); return; }
-    el("btnGen").disabled = true;
-    el("btnNar").disabled = true;
-    st.result = null;
-    st.msg = "正在读取素材…";
-    paint();
-    var narOnly = (mode === "narration");
-
-    post("/api/open", { path: st.path })
-      .then(function (r) {
-        if (!r.ok) throw new Error(r.error || "打不开这个文件");
-        st.job = r.id;
-        st.msg = narOnly ? "正在合成旁白，第一次要约一分钟…"
-                         : "正在合成，第一次要约一分钟…";
-        paint();
-        return post("/api/job/" + r.id + "/generate", {
-          a: st.a, b: st.b, c: st.c,
-          text: el("text").value.trim(),
-          mode: mode, speed: +el("speed").value || 1.0,
-          auto_ref: true, pace: false, unify_loudness: false, qc: true,
-        });
-      })
-      .then(function () {
-        var tick = setInterval(function () {
-          fetch(API + "/api/job/" + st.job)
-            .then(function (r) { return r.json(); })
-            .then(function (j) {
-              st.msg = j.message || j.stage;
-              paint();
-              if (j.stage === "done" || j.stage === "error") {
-                clearInterval(tick);
-                st.job = null;
-                if (j.stage === "done") {
-                  st.result = j.result || null;
-                  if (!st.result || !st.result.out_dir) {
-                    st.msg = "已生成，到输出目录查看";
-                  } else if (st.result.mode === "narration") {
-                    st.msg = "旁白已生成，还没插回原声（文件在下方）";
-                  } else {
-                    st.msg = "已生成，成品在下方（可直接在访达里打开）";
-                  }
-                  var pc = st.result && st.result.pace;
-                  if (pc && pc.reason) st.msg = "语速对齐：" + pc.reason + "。" + st.msg;
-                } else {
-                  st.result = null;
-                  st.msg = "出错：" + (j.error || "未知原因");
-                }
-                paint();
-              }
-            })
-            .catch(function () {});
-        }, 700);
-      })
-      .catch(function (e) {
-        st.msg = "失败：" + (e.message || e);
-        paint();
-      });
-  }
-
-  /* ---------- 三条微调轨道 ----------
+  /* ---------- 波形轨道 ----------
    *
-   * 三个点各占一条轨道，各自以自己的打点为中心画同一段波形。
+   * 一个点一条轴，各自以自己的打点为中心画同一段波形。
    * 中间那条固定的竖线才是打点的位置：把波形往右拖，等于让竖线指向更早的内容，
    * 也就是把打点往前挪。
    *
@@ -506,11 +557,11 @@
   var pending = { a: false, b: false, c: false };
   var dragging = null;
   var CSSV = {};
-  var LANE_H = 46;
+  var LANE_H = 40;
 
   function readCss() {
     var s = getComputedStyle(document.documentElement);
-    ["--bread", "--cheese", "--muted", "--accent"].forEach(function (n) {
+    ["--bread", "--brand", "--muted", "--text"].forEach(function (n) {
       CSSV[n] = s.getPropertyValue(n).trim();
     });
   }
@@ -559,8 +610,9 @@
   function drawLane(role) {
     var cv = el("lc" + role.toUpperCase());
     if (!cv || !cv.getContext) return;
-    var dpr = window.devicePixelRatio || 1;
     var w = cv.clientWidth || 240;
+    if (!w) return;                       // 折叠起来的轴不用画
+    var dpr = window.devicePixelRatio || 1;
     if (cv.width !== Math.round(w * dpr)) {
       cv.width = Math.round(w * dpr);
       cv.height = Math.round(LANE_H * dpr);
@@ -574,13 +626,13 @@
     g.textAlign = "center";
     if (t === null) {
       g.fillStyle = CSSV["--muted"] || "#888";
-      g.fillText("先打点，再拖波形微调", w / 2, LANE_H / 2 + 4);
+      g.fillText("打点后可以在这里拖着微调", w / 2, LANE_H / 2 + 4);
       return;
     }
     if (p && p.peaks && p.peaks.length) {
       var t0 = t - half(), n = p.peaks.length;
-      g.fillStyle = (role === "b") ? (CSSV["--cheese"] || "#e0a458")
-                                   : (CSSV["--bread"] || "#9a7b4f");
+      g.fillStyle = (role === "b") ? (CSSV["--brand"] || "#cf9413")
+                                   : (CSSV["--bread"] || "#8a6a3d");
       for (var x = 0; x < w; x++) {
         var ta = t0 + (x / w) * half() * 2;
         var tb = t0 + ((x + 1) / w) * half() * 2;
@@ -600,7 +652,7 @@
       g.fillText("波形读取中…", w / 2, LANE_H / 2 + 4);
     }
     // 中线：这一条才是打点所在的位置
-    g.fillStyle = CSSV["--accent"] || "#d8893b";
+    g.fillStyle = CSSV["--brand"] || "#cf9413";
     g.fillRect(Math.round(w / 2) - 0.75, 0, 1.5, LANE_H);
 
     drawPlayhead(g, w, t - half(), t + half());
@@ -612,7 +664,7 @@
    * 播 A→C 那种长区间时，播放头多半已经扫出视野了。
    */
   function drawPlayhead(g, w, t0, t1) {
-    var head = CSSV["--text"] || "#e8e6e3";
+    var head = CSSV["--text"] || "#1d1b18";
     var span = t1 - t0;
     if (st.pos >= t0 && st.pos <= t1) {
       var px = ((st.pos - t0) / span) * w;
@@ -639,6 +691,7 @@
    */
   function playLane(role) {
     var h = half();
+    stopNarration();
     send("playRange", {
       from: Math.max(0, st[role] - h), to: st[role] + h,
       label: role.toUpperCase() + " 附近 ±" + h.toFixed(2) + "s",
@@ -670,8 +723,9 @@
 
   function refreshLanes() {
     ["a", "b", "c"].forEach(function (role) {
-      el("lv" + role.toUpperCase()).textContent =
-        (st[role] === null) ? "未打点" : fmtMs(st[role]);
+      var v = el("lv" + role.toUpperCase());
+      v.textContent = (st[role] === null) ? "未打点" : fmtMs(st[role]);
+      v.className = "cv" + (st[role] === null ? " unset" : "");
       ensurePeaks(role);
       drawLane(role);
     });
@@ -727,16 +781,34 @@
   };
 
   /**
-   * A→C 试听条。整片的进度不用在面板里再画一条（播放器自己就有），
-   * 但「旁白要照着来的那一段」值得单独一条：A 与 C 打好后出现，
-   * 试听时播放头在里面走，B 的位置也标在上面 —— 一眼看出旁白会插在哪儿。
+   * 参考条。整片的进度不用在面板里再画一条（播放器自己就有），
+   * 但「旁白要照着来的那一段」值得单独一条：常驻着，没打点时是空骨架，
+   * 打齐了就在里面画出 A→C，B 的位置也标在上面。
    */
   function paintRefbar() {
     var ok = st.a !== null && st.c !== null && st.c > st.a;
-    el("refWrap").style.display = ok ? "block" : "none";
-    if (!ok) return;
+    var bar = el("refbar");
+    bar.className = "refbar" + (ok ? "" : " empty");
+    el("refEmpty").style.display = ok ? "none" : "flex";
+    el("refFill").style.display = ok ? "block" : "none";
+    el("refEdgeA").style.display = ok ? "block" : "none";
+    el("refEdgeC").style.display = ok ? "block" : "none";
+    if (!ok) {
+      el("rbA").textContent = "A 未打点";
+      el("rbC").textContent = "C 未打点";
+      el("rbLen").textContent = "";
+      el("rbB").style.display = "none";
+      el("rhead").style.display = "none";
+      return;
+    }
     var span = st.c - st.a;
     var at = function (t) { return ((t - st.a) / span * 100) + "%"; };
+
+    el("refFill").style.left = at(st.a);
+    el("refFill").style.right = "auto";
+    el("refFill").style.width = ((st.c - st.a) / span * 100) + "%";
+    el("refEdgeA").style.left = at(st.a);
+    el("refEdgeC").style.left = at(st.c);
 
     var hasB = st.b !== null && st.b > st.a && st.b < st.c;
     el("rbB").style.display = hasB ? "block" : "none";
@@ -755,7 +827,7 @@
     // 正在播的就是 A→C 时把这条点亮，说明「现在听的是这一段」
     var pr = st.prange;
     var on = !!(st.playing && pr && pr.from <= st.a + 0.01 && pr.to >= st.c - 0.01);
-    el("refbar").className = "refbar" + (on ? " on" : "");
+    if (on) bar.className = "refbar on";
   }
 
   // 点条上任意一处就跳过去 —— 想从中间听一句，不必先拖播放器
@@ -771,49 +843,210 @@
     paint();
   });
 
+  /* ---------- 旁白播放：合成出来的那一段由网页自己播 ----------
+   * 参考监听的是原声，得交给播放器；旁白是面板自己产出的文件，
+   * 用 audio 元素播最直接 —— 它有独立的进度，能反复听这一句到底像不像。
+   */
+  var nar = el("narAudio");
+
+  function narStopUi() {
+    el("btnNarPlay").textContent = "▶";
+    el("btnNarPlay").className = "playBig";
+  }
+  function stopNarration() {
+    if (nar && !nar.paused) { nar.pause(); nar.currentTime = 0; }
+    narStopUi();
+    paintNarProgress();
+  }
+  function paintNarProgress() {
+    var d = nar.duration;
+    if (!d || isNaN(d)) { el("narFill").style.width = "0%"; return; }
+    el("narFill").style.width = ((nar.currentTime / d) * 100) + "%";
+    el("narTime").textContent = fmt(nar.currentTime) + " / " + fmt(d);
+  }
+  nar.addEventListener("timeupdate", paintNarProgress);
+  nar.addEventListener("loadedmetadata", paintNarProgress);
+  nar.addEventListener("ended", function () { narStopUi(); paintNarProgress(); });
+  nar.addEventListener("play", function () {
+    el("btnNarPlay").textContent = "■";
+    el("btnNarPlay").className = "playBig on";
+  });
+  el("btnNarPlay").addEventListener("click", function () {
+    if (!nar.src) return;
+    if (!nar.paused) { nar.pause(); narStopUi(); return; }
+    // 别让播放器里的原声和旁白叠在一起
+    if (st.playing) { send("stop"); st.playing = false; st.playRole = null; st.prange = null; }
+    nar.play().catch(function () { st.msg = "这一段播不出来"; paint(); });
+    paint();
+  });
+  el("narTrack").addEventListener("click", function (e) {
+    var d = nar.duration;
+    if (!d || isNaN(d)) return;
+    var box = el("narTrack");
+    var r = (box.getBoundingClientRect && box.getBoundingClientRect()) ||
+            { left: 0, width: box.clientWidth || 0 };
+    var f = Math.min(1, Math.max(0, (e.clientX - (r.left || 0)) / (r.width || 1)));
+    nar.currentTime = f * d;
+    paintNarProgress();
+  });
+
+  function paintQc(res) {
+    var q = res && res.qc;
+    if (!q || q.error || q.similarity === undefined) {
+      el("qcBox").style.display = "none";
+      return;
+    }
+    el("qcBox").style.display = "block";
+    var v = Math.round(q.similarity * 1000) / 10;
+    var s = el("qcSim");
+    s.textContent = v.toFixed(1) + "%";
+    s.className = "qcSim " + (v >= 95 ? "good" : (v >= 85 ? "mid" : "low"));
+    el("qcCnt").textContent = (q.diff_count ? q.diff_count + " 处不一致" :
+                               (typeof q.diff_count === "number" ? "逐字一致" : ""));
+    el("qcAsr").textContent = q.asr_text || "";
+  }
+
+  /**
+   * mode = "narration" 只合成旁白（不切面包、不拼接）；
+   * mode = "sandwich" 才是把旁白夹回 A→B、B→C 之间。两者共用同一条流水线，
+   * 差别只在后端要不要继续做下去。
+   *
+   * 界面上是同一条路：先合成旁白，听完决定要不要插回去。
+   */
+  function run(mode) {
+    if (!st.path) { st.msg = "先在播放器里打开一个文件"; paint(); return; }
+    st.result = null;
+    st.jobPending = true;
+    st.msg = "正在读取素材…";
+    stopNarration();
+    paint();
+    var narOnly = (mode === "narration");
+
+    post("/api/open", { path: st.path })
+      .then(function (r) {
+        if (!r.ok) throw new Error(r.error || "打不开这个文件");
+        st.job = r.id;
+        st.msg = "正在合成，第一次要约一分钟…";
+        paint();
+        return post("/api/job/" + r.id + "/generate", {
+          a: st.a, b: st.b, c: st.c,
+          text: el("text").value.trim(),
+          mode: mode, speed: +el("speed").value || 1.0,
+          auto_ref: true, pace: false, unify_loudness: false, qc: true,
+        });
+      })
+      .then(function () {
+        var tick = setInterval(function () {
+          fetch(API + "/api/job/" + st.job)
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+              st.msg = j.message || j.stage;
+              st.stageProgress = (typeof j.progress === "number") ? j.progress : 0;
+              paint();
+              if (j.stage === "done" || j.stage === "error") {
+                clearInterval(tick);
+                st.job = null;
+                st.stageProgress = 0;
+                if (j.stage === "done") {
+                  st.result = j.result || null;
+                  if (st.result && st.result.narration) {
+                    nar.src = API + st.result.narration;
+                    nar.load();
+                  }
+                  st.msg = (st.result && st.result.mode === "narration")
+                    ? "听着行就往下走第 04 步"
+                    : "成品已生成，就在下方";
+                  var pc = st.result && st.result.pace;
+                  if (pc && pc.reason) st.msg = "语速对齐：" + pc.reason + "。" + st.msg;
+                } else {
+                  st.result = null;
+                  st.msg = "出错：" + (j.error || "未知原因");
+                }
+                paint();
+              }
+            })
+            .catch(function () {});
+        }, 700);
+      })
+      .catch(function (e) {
+        st.job = null;
+        st.stageProgress = 0;
+        st.msg = "失败：" + (e.message || e);
+        paint();
+      });
+  }
+
+  /** 差什么就说明白，别让用户对着一个灰按钮猜。 */
+  function missing() {
+    var m = [];
+    if (!st.backend) m.push("本机服务（没起来就跑 ./run.sh）");
+    else if (!st.path) m.push("一个正在播放的文件");
+    if (!(st.a !== null && st.c !== null && st.c > st.a)) m.push("取样区间 A→C");
+    if (!el("text").value.trim()) m.push("一句旁白");
+    return m;
+  }
+  function missingStitch() {
+    if (!st.result) return "先在第 02 步合成旁白";
+    if (st.b === null) return "打上插入点 B：旁白会从这里插进去";
+    if (!(st.a < st.b && st.b < st.c)) return "B 要落在 A 和 C 之间";
+    return "";
+  }
+
   function paint() {
     el("file").textContent = st.file || "未在播放";
     el("file").title = st.file || "";
     el("pos").textContent = fmt(st.pos);
-    el("dur").textContent = " / " + fmt(st.dur);
+    el("dur").textContent = fmt(st.dur);
+    el("dot").className = "dot " + (st.backend ? "on" : "off");
 
+    var busy = !!st.job;
+    var m = missing();
+    var canGen = !busy && m.length === 0;
+    el("btnGen").disabled = !canGen;
+    el("genTxt").textContent = busy ? (st.msg || "正在合成…") : "合成旁白";
+    el("genFill").style.width = busy ? (st.stageProgress * 100) + "%" : "0%";
+    el("genWhy").textContent = busy ? "" : (m.length ? "还需要：" + m.join("、")
+                                                     : "会用 A→C 这一段的音色念出来");
+
+    // 合成出来的东西都在第三步与第四步，没有结果就不占地方
+    var has = !!st.result;
+    el("g3").style.display = has ? "block" : "none";
+    el("g4").style.display = has ? "block" : "none";
+    if (has) {
+      paintQc(st.result);
+      var name = ((st.result.out_wav || "").split("/").pop()) || "";
+      el("outName").textContent = name;
+      el("outName").title = st.result.out_wav || "";
+      var stitched = st.result.mode !== "narration";
+      el("exitHead").textContent = stitched ? "成品" : "旁白 · 拿到剪辑软件里";
+      el("exitNote").textContent = stitched ? "整段已经拼好" : "拖进你自己的时间线";
+      el("exitStitch").style.display = stitched ? "none" : "block";
+
+      var ms = missingStitch();
+      el("btnGen2").disabled = !!ms;
+      el("gen2Why").textContent = ms;
+      el("gen2Fill").style.width = busy ? (st.stageProgress * 100) + "%" : "0%";
+      el("gen2Txt").textContent = busy ? (st.msg || "正在合成…") : "合成成品";
+    }
+
+    // 哪条轴在播，就把它的键切成停止
     ["a", "b", "c"].forEach(function (k) {
-      var v = st[k];
-      el("m" + k.toUpperCase()).querySelector(".v").textContent = fmtMs(v);
-      el("m" + k.toUpperCase()).className = "mark" + (v !== null ? " set" : "");
-      // 哪条轴在播，就把它的键切成停止
       var pb = el("lp" + k.toUpperCase());
       var on = st.playing && st.playRole === k;
       pb.textContent = on ? "■" : "▶";
-      pb.className = "mini" + (on ? " on" : "");
-      pb.title = on ? "停止" : "播放这条轴上看到的这一小段";
+      pb.className = "chip icon" + (on ? " on" : "");
+      pb.title = on ? "停止" : "听这一小段";
     });
 
     paintRefbar();
 
-    // 只合成旁白只要有参考区间 A→C 就能跑（B 只是给参考窗口一个偏好位置）；
-    // 要插回去才必须有 A<B<C
-    var base = st.backend && !!st.path && st.a !== null && st.c !== null &&
-               st.a < st.c && el("text").value.trim().length > 0 && !st.job;
-    var ready = base && st.b !== null && st.a < st.b && st.b < st.c;
-    el("btnNar").disabled = !base;
-    el("btnGen").disabled = !ready;
-    el("dot").className = "dot " + (st.backend ? "on" : "off");
-
-    var out = (st.result && st.result.out_dir) ? st.result.out_dir : "";
-    el("outBox").style.display = out ? "block" : "none";
-    if (out) {
-      var name = (st.result.out_wav || "").split("/").pop();
-      el("outPath").textContent =
-        (st.result.mode === "narration" ? "旁白：" : "成品：") + (name || out);
-    }
     if (st.notice) {
       el("st").textContent = st.notice.text;
-      el("st").style.color = st.notice.is_error ? "var(--bad)" : "";
+      el("st").className = "status" + (st.notice.is_error ? " err" : "");
     } else {
       el("st").textContent = st.msg ||
         (st.backend ? "已连接本机服务" : "未连到本机服务（先跑 ./run.sh）");
-      el("st").style.color = "";
+      el("st").className = "status";
     }
     refreshLanes();
   }
@@ -836,24 +1069,33 @@
       st.playing = false; st.playRole = null; st.prange = null;
       st.msg = "已停止";
     } else {
+      stopNarration();
       send("preview");
       st.playRole = null;
       st.msg = "正在播放 A→C，旁白会照这段的语气来";
     }
     paint();
   });
-  readCss();
-  el("zoom-v").textContent = "±" + half().toFixed(2) + "s";
+
+  el("btnStitchToggle").addEventListener("click", function () {
+    var box = el("stitchBox");
+    var open = box.style.display === "none";
+    box.style.display = open ? "block" : "none";
+    el("btnStitchToggle").textContent = open ? "收起" : "或者，就在这里插回去";
+    if (open) { ensurePeaks("b"); drawLane("b"); }
+  });
 
   el("text").addEventListener("input", paint);
-  el("btnNar").addEventListener("click", function () { run("narration"); });
-  el("btnGen").addEventListener("click", function () { run("sandwich"); });
+  el("btnGen").addEventListener("click", function () { run("narration"); });
+  el("btnGen2").addEventListener("click", function () { run("sandwich"); });
   el("btnReveal").addEventListener("click", function () {
     var p = st.result && (st.result.out_wav || st.result.out_dir);
     if (!p) return;
     post("/api/reveal", { path: p });
   });
 
+  readCss();
+  el("zoom-v").textContent = "±" + half().toFixed(2) + "s";
   paint();
 })();
 </script>

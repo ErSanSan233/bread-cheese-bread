@@ -189,7 +189,7 @@ curl -s http://127.0.0.1:8733/api/session | python3 -c "import sys,json;print(js
 
 ### T7 · 打点能否写入
 
-在播放中用 `Alt+A` / `Alt+B` / `Alt+S` 各打一次点，或点击面板格内的「打点」按钮。
+在播放中用 `Alt+A` / `Alt+B` / `Alt+S` 各打一次点，或点击面板时间点卡里的「打点」键。
 不便操作界面时，可用与面板按钮等价的请求写入：
 
 ```bash
