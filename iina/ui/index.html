@@ -78,32 +78,49 @@
   .dot.on { background: var(--accent); }
   .dot.off { background: var(--bad); }
 
-  /* 取样区间：6px 的一条浅槽。没取样时它就是空槽，本身就是说明 */
+  /*
+   * 选区条 —— 整个取样动作都发生在这里，它是唯一的操作面：
+   * 拖一下□出选区，拖把手改边界，拖里面整个挪，拖plot之外的空白处重来。
+   */
   .refrange { margin-top: 13px; }
-  .refbar {
-    position: relative; height: 6px; border-radius: 3px;
-    background: var(--sunken); overflow: hidden; cursor: pointer;
+  .range {
+    position: relative; height: 34px; border-radius: var(--rsm); overflow: hidden;
+    background: var(--sunken); cursor: crosshair; touch-action: none;
   }
-  .refbar.empty { opacity: .55; }
-  .refbar .fill { position: absolute; top: 0; bottom: 0; background: var(--accent); opacity: .26; }
-  .refbar .edge { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); }
-  .refbar .rb { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--label); opacity: .5; }
-  .refbar .rhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--label); }
-  .refbar.on { box-shadow: inset 0 0 0 1px var(--accent); }
+  .range canvas { display: block; width: 100%; height: 34px; }
+  .range.blank canvas { opacity: .45; }
+  /* 覆盖层一律不吃指针：手势全由 canvas 统一处理 */
+  .range .sel { position: absolute; top: 0; bottom: 0; background: var(--accent); opacity: .15; pointer-events: none; }
+  .range .grip {
+    position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); pointer-events: none;
+  }
+  .range .grip::after {
+    content: ""; position: absolute; top: 50%; left: -3px;
+    width: 8px; height: 15px; margin-top: -7.5px; border-radius: 2.5px; background: var(--accent);
+  }
+  .range .rb {
+    position: absolute; top: 0; bottom: 0; width: 2px; background: var(--label);
+    opacity: .5; pointer-events: none;
+  }
+  .range .rhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--label); pointer-events: none; }
+  .range .invite {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; color: var(--label2); pointer-events: none; text-align: center; padding: 0 12px;
+  }
   .refmeta {
     display: flex; justify-content: space-between; gap: 8px; margin-top: 5px;
     font-size: 11px; color: var(--label2);
   }
   .refmeta .hint { color: var(--label3); }
 
-  /* 三条轴是一组，不是一个一个的盒子：共享一个容器，之间只用一条 hairline */
+  /* 两条轴是一组端点，不是一个一个的盒子；它们是同一个选区的两个放大镜 */
   .lanes {
-    margin-top: 9px; border-radius: var(--rsm); overflow: hidden; background: var(--sunken);
+    margin-top: 8px; border-radius: var(--rsm); overflow: hidden; background: var(--sunken);
   }
   .lane { position: relative; }
   .lane + .lane { border-top: 0.5px solid var(--hair); }
   .lane canvas {
-    display: block; width: 100%; height: 48px; touch-action: none; cursor: ew-resize;
+    display: block; width: 100%; height: 44px; touch-action: none; cursor: ew-resize;
   }
   .lane:hover canvas { background: var(--chip); }
   .laneTag {
@@ -162,9 +179,7 @@
   }
   .ptxt { position: relative; }
 
-  .tools { display: flex; align-items: center; gap: 7px; margin-top: 8px; }
-  .tools .lb { font-size: 11px; color: var(--label3); }
-  .tools input[type=range] { width: 62px; flex: none; }
+  .tools { display: flex; align-items: center; gap: 7px; margin-top: 7px; }
   .tools .sp { flex: 1; }
   @media (max-width: 252px) { .tools { flex-wrap: wrap; } }
 
@@ -179,6 +194,9 @@
 
   input[type=range] { accent-color: var(--accent); }
 
+  /* 重录时才需要的东西，第一次合成之前不占版面 */
+  .tune { display: none; }
+  .tune.show { display: block; }
   .slider { display: flex; align-items: center; gap: 8px; margin-top: 9px; font-size: 11px; color: var(--label3); }
   .slider input[type=range] { flex: 1; min-width: 0; }
   .slider .v {
@@ -244,54 +262,55 @@
     </span>
   </div>
 
-  <!-- 取样：这条 6px 的浅槽本身就是说明。没打点时它是空的，打过之后才被点亮。 -->
+  <!-- 取样。整个动作只有这一处：拖出一段就完事，不需要先打点再调精度再验证。 -->
   <div class="refrange">
-    <div class="refbar empty" id="refbar" title="点一下跳到该处">
-      <div class="fill" id="refFill" style="display:none"></div>
-      <div class="edge" id="refEdgeA" style="display:none"></div>
-      <div class="edge" id="refEdgeC" style="display:none"></div>
+    <div class="range blank" id="refbar" title="拖一下框出一段；拖两端改边界；点一下跳过去">
+      <canvas id="ov"></canvas>
+      <div class="sel" id="refFill" style="display:none"></div>
+      <div class="grip" id="refEdgeA" style="display:none"></div>
+      <div class="grip" id="refEdgeC" style="display:none"></div>
       <div class="rb" id="rbB" style="display:none"></div>
       <div class="rhead" id="rhead" style="display:none"></div>
+      <div class="invite" id="refEmpty">在这段声音上拖一段，它会照着念</div>
     </div>
     <div class="refmeta">
-      <span class="hint" id="refEmpty">取样：Alt+A 起点 · Alt+S 终点</span>
+      <span class="hint" id="hintRange"></span>
       <span id="rbLen"></span>
     </div>
   </div>
 
+  <!-- 两条轴是上面那段选区的两个端点放大镜：大家 second只在要把边界挪到字缝上时用 -->
   <div class="lanes">
     <div class="lane" data-role="a">
       <canvas id="lcA"></canvas>
       <span class="laneTag">A</span>
       <div class="laneTop">
-        <span class="cv unset" id="lvA">未打点</span>
+        <span class="cv unset" id="lvA">未取样</span>
         <button class="chip icon" id="lpA" data-play="a" title="听这一小段">▶</button>
-        <button class="chip icon" data-set="A" title="把播放头所在处设为 A">•</button>
+        <button class="chip icon" data-set="A" title="把播放头所在处挪到这里">•</button>
       </div>
     </div>
     <div class="lane" data-role="c">
       <canvas id="lcC"></canvas>
       <span class="laneTag">C</span>
       <div class="laneTop">
-        <span class="cv unset" id="lvC">未打点</span>
+        <span class="cv unset" id="lvC">未取样</span>
         <button class="chip icon" id="lpC" data-play="c" title="听这一小段">▶</button>
-        <button class="chip icon" data-set="C" title="把播放头所在处设为 C">•</button>
+        <button class="chip icon" data-set="C" title="把播放头所在处挪到这里">•</button>
       </div>
     </div>
   </div>
+  <div class="refmeta"><span class="hint" id="hintLane"></span></div>
 
   <div class="tools">
-    <span class="lb">波形</span>
-    <input type="range" id="zoom" min="0" max="5" step="1" value="2" title="这一轴看多宽，决定能微调到多细">
-    <span class="lb" id="zoom-v">±1.00s</span>
     <span class="sp"></span>
     <button class="link" id="btnReset">清空</button>
-    <button id="btnPrev" title="听 A→C 这整段，旁白就照它的语气来">听这一段</button>
+    <button id="btnPrev" title="听这一整段，旁白就照它的语气来">听这一段</button>
   </div>
 
   <textarea id="text" placeholder="写下这段话，它会用片子里自己的声音说出来……"></textarea>
 
-  <div class="slider">
+  <div class="slider tune" id="tuneBox">
     <span>语速</span>
     <input type="range" id="speed" min="0.7" max="1.4" step="0.05" value="1.0">
     <span class="v" id="speed-v">1.00</span>
@@ -343,12 +362,13 @@
             <canvas id="lcB"></canvas>
             <span class="laneTag">B</span>
             <div class="laneTop">
-              <span class="cv unset" id="lvB">未打点</span>
+              <span class="cv unset" id="lvB">未定点</span>
               <button class="chip icon" id="lpB" data-play="b" title="听这一小段">▶</button>
-              <button class="chip icon" data-set="B" title="把播放头所在处设为 B">•</button>
+              <button class="chip icon" data-set="B" title="把播放头所在处挪到这里">•</button>
             </div>
           </div>
         </div>
+        <div class="refmeta"><span class="hint" id="hintLane"></span></div>
         <div style="margin-top:9px">
           <button class="primary" id="btnGen2" disabled>
             <span class="pfill" id="gen2Fill"></span>
@@ -541,6 +561,15 @@
     send("clearMarks");
   }
 
+  /* 提示只在没做过的时候说一遍。做过了就永远不提 ——
+     常驻的说明是从说明书里搬来的，它会让人以为有件事一直没交代完。 */
+  function seenTip(k) {
+    try { return localStorage.getItem("bcb.tip." + k); } catch (e) { return null; }
+  }
+  function rememberTip(k) {
+    try { localStorage.setItem("bcb.tip." + k, "1"); } catch (e) { /* file:// 下可能不可用 */ }
+  }
+
   /* ---------- 波形轨道 ----------
    *
    * 一个点一条轴，各自以自己的打点为中心画同一段波形。
@@ -551,8 +580,7 @@
    * 要「打点附近一小段、固定毫秒级格宽」的波形，长片也一样快。
    */
 
-  var HALVES = [0.25, 0.5, 1, 2, 4, 8];    // 轨道可见的半窗口（秒）
-  var halfIdx = 2;
+  var LANE_HALF = 0.5;                      // 轴永远只看这个宽度：精细这一件事归它管
   var PEAKS = { a: null, b: null, c: null };
   var pending = { a: false, b: false, c: false };
   var dragging = null;
@@ -565,7 +593,7 @@
       CSSV[n] = s.getPropertyValue(n).trim();
     });
   }
-  function half() { return HALVES[halfIdx]; }
+  function half() { return LANE_HALF; }
 
   /** 打点不能越过邻居，也不能出界 —— 拖到底就停在那儿，不让它错位。 */
   function clampMark(role, t) {
@@ -626,7 +654,7 @@
     g.textAlign = "center";
     if (t === null) {
       g.fillStyle = CSSV["--muted"] || "#888";
-      g.fillText("打点后可以在这里拖着微调", w / 2, LANE_H / 2 + 4);
+      g.fillText("框好之后，可以在这里拖着微调", w / 2, LANE_H / 2 + 4);
       return;
     }
     if (p && p.peaks && p.peaks.length) {
@@ -724,7 +752,7 @@
   function refreshLanes() {
     ["a", "b", "c"].forEach(function (role) {
       var v = el("lv" + role.toUpperCase());
-      v.textContent = (st[role] === null) ? "未打点" : fmtMs(st[role]);
+      v.textContent = (st[role] === null) ? (role === "b" ? "未定点" : "未取样") : fmtMs(st[role]);
       v.className = "cv" + (st[role] === null ? " unset" : "");
       ensurePeaks(role);
       drawLane(role);
@@ -762,6 +790,7 @@
       try { cv.releasePointerCapture(e.pointerId); } catch (err) { /* 忽略 */ }
       if (!moved) return;
       send("setMarkAt", { role: role, t: st[role] });
+      rememberTip("lane");
       if (st.playing && st.playRole === role) {
         playLane(role);   // 边听边挪：松手就接着从新位置播，不必再点一次
       } else {
@@ -772,39 +801,122 @@
     cv.addEventListener("pointercancel", function () { dragging = null; });
   });
 
-  el("zoom").oninput = function (e) {
-    halfIdx = (+e.target.value) || 0;
-    el("zoom-v").textContent = "±" + half().toFixed(2) + "s";
-    // 缩放一变，需要的分辨率与窗口长度都变了，缓存全部作废
-    PEAKS = { a: null, b: null, c: null };
-    refreshLanes();
-  };
 
   /**
    * 参考条。整片的进度不用在面板里再画一条（播放器自己就有），
    * 但「旁白要照着来的那一段」值得单独一条：常驻着，没打点时是空骨架，
    * 打齐了就在里面画出 A→C，B 的位置也标在上面。
    */
+  /* ---------- 取样条 ----------
+   *
+   * 取样在这儿只用一个手势：拖一下，框出一段。
+   *
+   * 没有「Alt+A 打起点 → 换个精度档 → 拖轴微调 → Alt+S 打终点 → 再调 → 点试听」
+   * 这条路了。那些是系统给自己加的工序，不是用户要做的决定。
+   * 视图该显示多宽也不用人事先选：有选区时自动聚焦到选区（两端留余量），
+   * 没选区时跟着播放头走 —— 要取样，你多半正在听那儿。原来那个「波形宽度」
+   * 滑块就是为这同一个视图要同时服务「看全貌」和「看毫秒」的冲突打的补丁，
+   * 现在这两个目的分给了两个视图，补丁就可以不要了。
+   */
+
+  var OV = null;                 // 取样条此刻显示的这一段波形
+  var ovPending = false;
+  var OV_MAX = 60;               // 一次最多取这么长
+  var dragOv = null;             // 拖动手势：在哪儿按下、此刻是哪种手势
+
+  /** 这条条此刻显示的是哪一段时间 */
+  function viewOf() {
+    var dur = (st.dur > 0) ? st.dur : 0;
+    // 拖动过程中视图必须钉住：一边拖一边缩放，手会完全找不到位置
+    if (dragOv && dragOv.view) return dragOv.view;
+    if (st.a !== null && st.c !== null && st.c > st.a) {
+      var pad = Math.max(0.6, (st.c - st.a) * 0.12);
+      var hi = (dur > 0) ? dur : (st.c + pad);
+      var t0 = Math.max(0, st.a - pad), t1 = Math.min(hi, st.c + pad);
+      if (t1 - t0 < 0.2) t1 = t0 + 0.2;
+      return { t0: t0, t1: t1 };
+    }
+    if (dur > 0 && dur <= OV_MAX) return { t0: 0, t1: dur };
+    var hsp = OV_MAX / 2;
+    var c = (dur > OV_MAX) ? Math.max(hsp, Math.min(dur - hsp, st.pos)) : hsp;
+    return { t0: Math.max(0, c - hsp), t1: Math.min(dur || OV_MAX, c + hsp) };
+  }
+
+  function ensureOverview() {
+    if (!st.path) { OV = null; return; }
+    var v = viewOf();
+    var span = v.t1 - v.t0;
+    if (span <= 0) return;
+    // 手上这段已经盖住了要显示的区间就别再要一次，来回拖的时候这点很重要
+    if (OV && OV.t0 <= v.t0 + 0.05 && OV.t0 + OV.span >= v.t1 - 0.05) { drawOverview(); return; }
+    if (ovPending) return;
+    ovPending = true;
+    fetch(API + "/api/peaks?path=" + encodeURIComponent(st.path) +
+          "&center=" + ((v.t0 + v.t1) / 2) + "&span=" + Math.min(OV_MAX, span))
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        ovPending = false;
+        if (d && d.peaks) { OV = d; drawOverview(); }
+      })
+      .catch(function () { ovPending = false; });
+  }
+
+  function drawOverview() {
+    var cv = el("ov");
+    if (!cv || !cv.getContext) return;
+    var w = cv.clientWidth || 240, h = 34;
+    if (!w) return;
+    var dpr = window.devicePixelRatio || 1;
+    if (cv.width !== Math.round(w * dpr)) {
+      cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    }
+    var g = cv.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    var v = viewOf(), p = OV;
+    if (!p || !p.peaks || !p.peaks.length) return;
+    var has = st.a !== null && st.c !== null && st.c > st.a;
+    var plain = CSSV["--muted"] || "#888";
+    var lit = CSSV["--brand"] || "#0a84ff";
+    for (var x = 0; x < w; x++) {
+      var ta = v.t0 + (x / w) * (v.t1 - v.t0);
+      var tb = v.t0 + ((x + 1) / w) * (v.t1 - v.t0);
+      var i0 = Math.floor((ta - p.t0) / p.res), i1 = Math.ceil((tb - p.t0) / p.res);
+      if (i1 <= i0) i1 = i0 + 1;
+      if (i0 < 0) i0 = 0;
+      if (i1 > p.peaks.length) i1 = p.peaks.length;
+      if (i0 >= p.peaks.length) continue;
+      var val = 0;
+      for (var i = i0; i < i1; i++) { if (p.peaks[i] > val) val = p.peaks[i]; }
+      // 框里的是被选中的内容，画得实；框外是背景，压暗
+      var isSel = has && ta >= st.a && ta <= st.c;
+      g.fillStyle = isSel ? lit : plain;
+      var bh = Math.max(1, val * (h - 10));
+      g.fillRect(x, (h - bh) / 2, 1, bh);
+    }
+  }
+
   function paintRefbar() {
     var ok = st.a !== null && st.c !== null && st.c > st.a;
     var bar = el("refbar");
-    bar.className = "refbar" + (ok ? "" : " empty");
+    bar.className = "range" + (ok ? "" : " blank");
     el("refEmpty").style.display = ok ? "none" : "flex";
     el("refFill").style.display = ok ? "block" : "none";
     el("refEdgeA").style.display = ok ? "block" : "none";
     el("refEdgeC").style.display = ok ? "block" : "none";
+    el("hintRange").textContent = seenTip("range") ? "" : "拖一下就框出一段";
+    el("hintLane").textContent = seenTip("lane") ? "" : "要更准，就在下面两条上拖";
+    ensureOverview();
     if (!ok) {
       el("rbLen").textContent = "";
       el("rbB").style.display = "none";
       el("rhead").style.display = "none";
       return;
     }
-    var span = st.c - st.a;
-    var at = function (t) { return ((t - st.a) / span * 100) + "%"; };
-
+    var v = viewOf();
+    var at = function (t) { return (((t - v.t0) / (v.t1 - v.t0)) * 100) + "%"; };
     el("refFill").style.left = at(st.a);
-    el("refFill").style.right = "auto";
-    el("refFill").style.width = ((st.c - st.a) / span * 100) + "%";
+    el("refFill").style.width = (((st.c - st.a) / (v.t1 - v.t0)) * 100) + "%";
     el("refEdgeA").style.left = at(st.a);
     el("refEdgeC").style.left = at(st.c);
 
@@ -812,32 +924,100 @@
     el("rbB").style.display = hasB ? "block" : "none";
     if (hasB) el("rbB").style.left = at(st.b);
 
-    // 播放头只在落进 A→C 时才画：在这段之外，它对试听没有意义
-    var inside = st.pos >= st.a && st.pos <= st.c;
-    el("rhead").style.display = inside ? "block" : "none";
-    if (inside) el("rhead").style.left = at(st.pos);
+    // 播放头落在这一段里才画：它说的始终是条上这一小段的事
+    var inView = st.pos >= v.t0 && st.pos <= v.t1;
+    el("rhead").style.display = inView ? "block" : "none";
+    if (inView) el("rhead").style.left = at(st.pos);
 
-    el("rbLen").textContent = "取样 " + span.toFixed(2) + " 秒" +
-      (hasB ? " · B 在 " + (st.b - st.a).toFixed(2) + "s" : "");
-
-    // 正在播的就是 A→C 时把这条点亮，说明「现在听的是这一段」
-    var pr = st.prange;
-    var on = !!(st.playing && pr && pr.from <= st.a + 0.01 && pr.to >= st.c - 0.01);
-    if (on) bar.className = "refbar on";
+    el("rbLen").textContent = "取样 " + (st.c - st.a).toFixed(2) + " 秒" +
+      (hasB ? " · 插在 " + (st.b - st.a).toFixed(2) + "s" : "");
   }
 
-  // 点条上任意一处就跳过去 —— 想从中间听一句，不必先拖播放器
-  el("refbar").addEventListener("click", function (e) {
-    if (!(st.a !== null && st.c !== null && st.c > st.a)) return;
-    var box = el("refbar");
-    var r = (box.getBoundingClientRect && box.getBoundingClientRect()) ||
-            { left: 0, width: box.clientWidth || 0 };
+  /* 手势：pointerdown 一落下去就定了性 ——
+     落在把手上是改边界，落在框里是整段挪，落在框外是重新框。
+     抬起来发现哪儿都没动，那就算点了一下：跳过去听。 */
+  var ovCv = el("ov");
+
+  function ovRect() {
+    return (ovCv.getBoundingClientRect && ovCv.getBoundingClientRect()) ||
+           { left: 0, width: ovCv.clientWidth || 240 };
+  }
+  function ovTime(e) {
+    var v = viewOf(), r = ovRect();
     var f = Math.min(1, Math.max(0, (e.clientX - (r.left || 0)) / (r.width || 1)));
-    var t = st.a + f * (st.c - st.a);
-    st.pos = t;                 // 插件下一轮才把新位置推回来，先自己挪一下
-    send("goto", { t: t });
+    return v.t0 + f * (v.t1 - v.t0);
+  }
+
+  ovCv.addEventListener("pointerdown", function (e) {
+    if (!st.path) return;
+    var has = st.a !== null && st.c !== null && st.c > st.a;
+    var t = ovTime(e);
+    var v = viewOf();
+    var tol = (10 / (ovCv.clientWidth || 240)) * (v.t1 - v.t0);
+    var mode = "new";
+    if (has) {
+      if (Math.abs(t - st.a) <= tol) mode = "a";
+      else if (Math.abs(t - st.c) <= tol) mode = "c";
+      else if (t > st.a && t < st.c) mode = "move";
+    }
+    dragOv = { mode: mode, startT: t, lastT: t, moved: false, view: v, a0: st.a, c0: st.c };
+    if (mode === "new") { st.a = t; st.c = t; }   // 零宽起步，拖到哪儿就框到哪儿
+    try { ovCv.setPointerCapture(e.pointerId); } catch (err) { /* 忽略 */ }
+    e.preventDefault();
+  });
+
+  ovCv.addEventListener("pointermove", function (e) {
+    if (!dragOv) return;
+    var t = ovTime(e);
+    if (Math.abs(t - dragOv.startT) > 0.01) dragOv.moved = true;
+    dragOv.lastT = t;
+    var v = viewOf();
+    var lo = Math.max(0, v.t0);
+    var hi = Math.min((st.dur > 0 ? st.dur : Infinity), v.t1);
+    function cl(x) { return Math.min(Math.max(x, lo), hi); }
+
+    if (dragOv.mode === "a") {
+      st.a = cl(t);
+      if (st.a > st.c) { var swap = st.a; st.a = st.c; st.c = swap; dragOv.mode = "c"; }
+    } else if (dragOv.mode === "c") {
+      st.c = cl(t);
+      if (st.c < st.a) { var swap2 = st.c; st.c = st.a; st.a = swap2; dragOv.mode = "a"; }
+    } else if (dragOv.mode === "move") {
+      var len = dragOv.c0 - dragOv.a0;
+      var na = Math.max(lo, Math.min(hi - len, dragOv.a0 + (t - dragOv.startT)));
+      st.a = na; st.c = na + len;
+    } else {
+      st.a = Math.min(dragOv.startT, t);
+      st.c = Math.max(dragOv.startT, t);
+    }
     paint();
   });
+
+  function endOvDrag() {
+    if (!dragOv) return;
+    var d = dragOv;
+    dragOv = null;
+    if (!d.moved) {
+      // 没挪过就是点了一下：跳过去听，选区别乱动
+      st.a = d.a0; st.c = d.c0;
+      st.pos = d.lastT;
+      send("goto", { t: d.lastT });
+      paint();
+      return;
+    }
+    rememberTip("range");
+    // 只把真正动过的那一端交出去，别为了省事两边都发一遍
+    if (st.a !== null && st.a !== d.a0) send("setMarkAt", { role: "a", t: st.a });
+    if (st.c !== null && st.c !== d.c0) send("setMarkAt", { role: "c", t: st.c });
+    // 松手就把播放器挪到刚动过的那一端：手指定到哪儿听到哪儿，
+    // 不用为了确认而专门去点「听这一段」
+    var focus = (d.mode === "a" || d.mode === "new") ? st.a : st.c;
+    st.pos = focus;
+    send("goto", { t: focus });
+    paint();
+  }
+  ovCv.addEventListener("pointerup", endOvDrag);
+  ovCv.addEventListener("pointercancel", endOvDrag);
 
   /* ---------- 旁白播放：合成出来的那一段由网页自己播 ----------
    * 参考监听的是原声，得交给播放器；旁白是面板自己产出的文件，
@@ -999,7 +1179,9 @@
     var m = missing();
     var canGen = !busy && m.length === 0;
     el("btnGen").disabled = !canGen;
-    el("genTxt").textContent = busy ? (st.msg || "正在合成…") : "合成旁白";
+    el("genTxt").textContent = busy ? (st.msg || "正在合成…")
+                                    : (st.result ? "重录一次" : "合成旁白");
+    el("tuneBox").className = st.result ? "slider tune show" : "slider tune";
     el("genFill").style.width = busy ? (st.stageProgress * 100) + "%" : "0%";
     el("genWhy").textContent = busy ? "" : (m.length ? "还需要：" + m.join("、")
                                                      : "会用 A→C 这一段的音色念出来");
@@ -1078,7 +1260,21 @@
     var open = box.style.display === "none";
     box.style.display = open ? "block" : "none";
     el("btnStitchToggle").textContent = open ? "收起" : "或者，就在这里插回去";
-    if (open) { ensurePeaks("b"); drawLane("b"); }
+    if (open) {
+      // 插入点默认就是播放头：旁白本来就该接在刚听过的那一处，
+      // 不值得为它再记一个快捷键、再走一遍「打点 — 微调」
+      if (st.b === null && st.a !== null && st.c !== null) {
+        // 播放头多半正压在刚拖过的那一端上，插在端点上没有意义 —— 这时退到中间
+        var atEnd = st.pos <= st.a + (st.c - st.a) * 0.05 ||
+                    st.pos >= st.c - (st.c - st.a) * 0.05;
+        var t = atEnd ? st.a + (st.c - st.a) / 2
+                      : Math.max(st.a + 0.001, Math.min(st.c - 0.001, st.pos));
+        st.b = t;
+        send("setMarkAt", { role: "b", t: t });
+      }
+      ensurePeaks("b"); drawLane("b");
+      paint();          // B 是这儿冒出来的，得当场画出来，不能等插件下一轮推
+    }
   });
 
   el("text").addEventListener("input", paint);
@@ -1091,7 +1287,6 @@
   });
 
   readCss();
-  el("zoom-v").textContent = "±" + half().toFixed(2) + "s";
   paint();
 })();
 </script>
