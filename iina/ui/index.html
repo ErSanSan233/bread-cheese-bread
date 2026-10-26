@@ -384,6 +384,7 @@
 
   <div class="footrow" style="margin-top:16px;text-align:center">
     <button class="link" id="btnOv">看看浮层(overlay)长什么样</button>
+    <button class="link" id="btnSw">看看独立窗口(standaloneWindow)长什么样</button>
   </div>
 
 <script>
@@ -1289,6 +1290,12 @@
     overlayOn = !overlayOn;
     send("previewOverlay", { on: overlayOn });
     el("btnOv").textContent = overlayOn ? "收起浮层预览" : "看看浮层(overlay)长什么样";
+  });
+  var swOn = false;
+  el("btnSw").addEventListener("click", function () {
+    swOn = !swOn;
+    send("previewStandalone", { on: swOn });
+    el("btnSw").textContent = swOn ? "收起独立窗口预览" : "看看独立窗口(standaloneWindow)长什么样";
   });
   el("btnReveal").addEventListener("click", function () {
     var p = st.result && (st.result.out_wav || st.result.out_dir);

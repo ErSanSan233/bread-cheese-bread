@@ -1,0 +1,930 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>两面包夹芝士 · 三层嵌套侧栏原型</title>
+<style>
+  /*
+   * 界面本身不带颜色。颜色只属于内容：波形、标记点、播放头，外加唯一的强调色。
+   * 分块靠留白与材质差，不靠描边。
+   */
+  :root{
+    color-scheme: light dark;
+    --label: rgba(0,0,0,.85);
+    --label2: rgba(0,0,0,.5);
+    --label3: rgba(0,0,0,.32);
+    --chip: rgba(0,0,0,.05);
+    --chipHi: rgba(0,0,0,.095);
+    --sunken: rgba(0,0,0,.045);
+    --hair: rgba(0,0,0,.1);
+    --bad: #ff3b30;
+    --accent: #0a84ff;
+    --onAccent: #fff;
+    --bread: rgba(0,0,0,.42);
+    --muted: rgba(0,0,0,.3);
+    --r: 10px; --rsm: 7px; --rxs: 5px;
+    --page: #E9E9EC;
+  }
+  @supports (color: AccentColor){ :root{ --accent:AccentColor; --onAccent:AccentColorText } }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --label: rgba(255,255,255,.9); --label2: rgba(255,255,255,.55); --label3: rgba(255,255,255,.34);
+      --chip: rgba(255,255,255,.08); --chipHi: rgba(255,255,255,.14); --sunken: rgba(255,255,255,.055);
+      --hair: rgba(255,255,255,.11); --bad:#ff453a;
+      --bread: rgba(255,255,255,.4); --muted: rgba(255,255,255,.28);
+      --page:#232326;
+    }
+  }
+
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;padding:0;background:var(--page);
+    font:13px/1.5 -apple-system,"SF Pro Text","PingFang SC","Helvetica Neue",sans-serif;
+    color:var(--label);-webkit-font-smoothing:antialiased;
+    display:flex;justify-content:center;align-items:flex-start;
+  }
+
+  /* 侧栏这一长条 */
+  .panel{
+    width:344px;max-height:100vh;overflow-y:auto;overflow-x:hidden;
+    background:var(--page);
+    display:flex;flex-direction:column;
+  }
+  .pad{padding:11px 13px 0}
+  .foot{
+    position:sticky;bottom:0;margin-top:14px;padding:10px 13px 12px;
+    background:var(--page);border-top:1px solid var(--hair);
+    display:flex;gap:8px;align-items:center;
+  }
+  .foot .spacer{flex:1}
+
+  /* 顶部元信息 */
+  .top{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--label2)}
+  .top .title{color:var(--label);font-weight:500}
+  .top .file{max-width:118px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .top .tc{margin-left:auto;display:flex;align-items:center;gap:5px;flex:none;font-variant-numeric:tabular-nums}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--label3);flex:none}
+  .dot.on{background:var(--accent)}
+
+  /* 播放头（真机里是 IINA 的播放头） */
+  .plhead{margin-top:10px}
+  .plrow{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--label2)}
+  .track{position:relative;flex:1;height:14px;display:flex;align-items:center;cursor:pointer}
+  .track::before{content:"";position:absolute;left:0;right:0;height:3px;border-radius:2px;background:var(--chip)}
+  .trackfill{position:absolute;left:0;height:3px;border-radius:2px;background:var(--label3);pointer-events:none}
+  .trackph{position:absolute;width:8px;height:8px;border-radius:50%;background:var(--label);
+    transform:translateX(-4px);pointer-events:none}
+
+  /* 卡片（第一层：取样片段） */
+  .card{
+    margin:14px 13px 0;padding:11px 11px 12px;border-radius:var(--r);
+    background:var(--sunken);
+  }
+  .cardhd{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:500;color:var(--label)}
+  .cardhd .idx{color:var(--label)}
+  .cardhd .del{margin-left:auto}
+  .del{border:0;background:transparent;color:var(--label3);cursor:pointer;font:inherit;font-size:12px;
+    padding:2px 4px;border-radius:var(--rxs);line-height:1}
+  .del:hover{color:var(--bad);background:var(--chip)}
+
+  .axis{display:flex;align-items:center;gap:7px;margin-top:8px}
+  .al{font-size:10.5px;color:var(--label3);width:16px;flex:none;text-align:center}
+  .lab{font-size:10.5px;color:var(--label3);width:24px;flex:none}
+  .play{width:20px;height:20px;border-radius:50%;border:0;background:var(--chip);cursor:pointer;flex:none;
+    display:grid;place-items:center;padding:0;color:var(--label2)}
+  .play:hover{background:var(--chipHi);color:var(--label)}
+  .play svg{width:8px;height:8px;fill:currentColor}
+  canvas.cv{display:block;flex:1;min-width:0;height:30px;border-radius:var(--rsm);background:var(--chip);
+    touch-action:none}
+  canvas.cv.over{height:38px;cursor:pointer}
+  canvas.cv.edge{cursor:ew-resize}
+  .meta{margin-top:3px;display:flex;justify-content:space-between;font-size:10.5px;color:var(--label3);
+    font-variant-numeric:tabular-nums}
+
+  /* 第二层：插入点 */
+  .ins{margin-top:12px;padding:9px 9px 10px;border-radius:var(--rsm);background:var(--page)}
+  .inshd{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--label2)}
+  .inshd .idx{color:var(--label);font-weight:500}
+  .inshd .del{margin-left:auto}
+  textarea{
+    width:100%;margin-top:8px;border:0;background:var(--sunken);border-radius:var(--rxs);
+    padding:7px 8px;font:inherit;font-size:12.5px;line-height:1.5;color:var(--label);
+    resize:none;outline:none;min-height:44px;-webkit-user-select:text
+  }
+  textarea::placeholder{color:var(--label3)}
+  .insacts{display:flex;align-items:center;gap:8px;margin-top:7px}
+  .insacts .spacer{flex:1}
+
+  .btn{font:inherit;font-size:12.5px;border:0;background:var(--chip);color:var(--label);
+    padding:4px 10px;border-radius:var(--rxs);cursor:pointer}
+  .btn:hover{background:var(--chipHi)}
+  .btn[disabled]{opacity:.4;cursor:default}
+  .btn.primary{font-weight:600;background:var(--chipHi)}
+  .btn.primary:not([disabled]):hover{background:var(--hair)}
+  .btn.accent{background:var(--accent);color:var(--onAccent);font-weight:500}
+  .btn.accent:hover{filter:brightness(1.06)}
+
+  .bar{margin-top:8px;height:2px;border-radius:1px;background:var(--chip);overflow:hidden}
+  .bar i{display:block;height:100%;width:0;background:var(--accent)}
+  .barline{margin-top:5px;font-size:10.5px;color:var(--label2);font-variant-numeric:tabular-nums}
+
+  /* 第三层：生成次数 */
+  .takes{margin-top:8px}
+  .take{display:flex;align-items:center;gap:6px;padding:2px 0}
+  .take .k{font-size:11px;color:var(--label3);width:44px;flex:none;font-variant-numeric:tabular-nums;
+    white-space:nowrap}
+  .take .play{width:18px;height:18px}
+  .take .play svg{width:7px;height:7px}
+  .take .spacer{flex:1}
+  canvas.cv.take{height:22px;cursor:default}
+  .take .bar{flex:1;margin:0;background:var(--hair)}
+  .take .pct{font-size:10.5px;color:var(--label3);width:30px;flex:none;text-align:right;
+    font-variant-numeric:tabular-nums}
+  .take .pick,.take .drop{flex:none}
+  .pick,.drop{border:0;background:transparent;color:var(--label3);cursor:pointer;font:inherit;font-size:11.5px;
+    padding:2px 5px;border-radius:var(--rxs)}
+  .pick:hover{color:var(--accent);background:var(--chip)}
+  .drop:hover{color:var(--bad);background:var(--chip)}
+  .take[data-sel="1"] .k{color:var(--accent);font-weight:600}
+  .take[data-sel="1"] .pick{color:var(--accent)}
+
+  .addrow{margin:12px 13px 0;display:flex}
+  .add{width:100%;justify-content:center;padding:8px}
+</style>
+</head>
+<body>
+<div class="panel" id="panel">
+  <div class="pad">
+    <div class="top">
+      <span class="title">两面包夹芝士</span>
+      <span class="file">访谈_成片_v7.mp4</span>
+      <span class="tc"><span class="dot on"></span><span id="tc">00:42.6</span></span>
+    </div>
+    <div class="plhead">
+      <div class="plrow">
+        <span>播放头</span>
+        <div class="track" id="track">
+          <div class="trackfill" id="trackfill"></div>
+          <div class="trackph" id="trackph"></div>
+        </div>
+      </div>
+    </div>
+    <div id="cards"></div>
+    <div class="addrow">
+      <button class="btn primary add" id="addSample">基于播放进度新增</button>
+    </div>
+  </div>
+  <div class="foot">
+    <button class="btn" id="dlAll" disabled>下载所有片段</button>
+    <span class="spacer"></span>
+    <button class="btn accent" id="insAll" disabled>自动插入所有片段</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ================= 假的音轨：整片 120s，句间有静音间隙 ================= */
+  const FILM = 120, SR = 22050;
+  function mulberry32(a){return function(){a|=0;a=(a+0x6D2B79F5)|0;let t=Math.imul(a^(a>>>15),1|a);t=(t+Math.imul(t^(t>>>7),61|t))^t;return ((t^(t>>>14))>>>0)/4294967296;};}
+  const rnd = mulberry32(20261026);
+  const SEGS = [];
+  (function build(){
+    let t = 1.2;
+    while (t < FILM - 2.5){
+      const d = 1.3 + rnd() * 5.4;
+      SEGS.push([t, t + d, rnd() * 10]);
+      t += d + 0.28 + rnd() * 0.95;
+    }
+  })();
+  const GAPS = [];
+  for (let i = 0; i < SEGS.length - 1; i++) GAPS.push([SEGS[i][1], SEGS[i + 1][0]]);
+
+  function segAt(t){
+    for (let i = 0; i < SEGS.length; i++) if (t >= SEGS[i][0] && t <= SEGS[i][1]) return i;
+    return -1;
+  }
+  function ampAt(t){
+    const i = segAt(t);
+    if (i < 0) return 0.012 + 0.008 * Math.abs(Math.sin(t * 0.9));
+    const s = SEGS[i];
+    const att = Math.min(1, (t - s[0]) / 0.10), dec = Math.min(1, (s[1] - t) / 0.16);
+    const syl = Math.abs(Math.sin(t * 27.3 + s[2] * 3.7)) * 0.72 + Math.abs(Math.sin(t * 9.1 + s[2])) * 0.28;
+    const wob = 0.72 + 0.28 * Math.sin(t * 1.63 + s[2]);
+    return Math.max(0.02, Math.min(1, att * dec * (0.3 + 0.66 * syl) * wob));
+  }
+
+  const SNAP_R = 1.2, DRAG_MAGNET = 0.35, MINLEN = 8, MAXLEN = 15;
+
+  function derive(rawB){
+    let k = rawB, snapped = false, bestD = SNAP_R, bestC = null;
+    for (const g of GAPS){
+      const c = (g[0] + g[1]) / 2, d = Math.abs(c - rawB);
+      if (d < bestD){ bestD = d; bestC = c; }
+    }
+    if (bestC !== null){ k = bestC; snapped = true; }
+
+    let ia = 0, ic = SEGS.length - 1;
+    for (let i = 0; i < SEGS.length; i++){ if (SEGS[i][0] < k) ia = i; else break; }
+    for (let i = SEGS.length - 1; i >= 0; i--){ if (SEGS[i][1] > k){ ic = i; break; } }
+    let A = SEGS[ia][0], C = SEGS[ic][1];
+    if (A >= k - 0.4) A = 0;
+    if (C <= k + 0.4) C = FILM;
+    while (C - A < MINLEN && (ia > 0 || ic < SEGS.length - 1)){
+      if (ia > 0 && (ic >= SEGS.length - 1 || (k - A) >= (C - k))) { ia--; A = SEGS[ia][0]; }
+      else { ic++; C = SEGS[ic][1]; }
+    }
+    if (C - A < MINLEN){ A = Math.max(0, k - 4); C = Math.min(FILM, A + MINLEN); }
+    if (C - A > MAXLEN){ if (k - A > C - k) A = C - MAXLEN; else C = A + MAXLEN; }
+    A = Math.max(0, A); C = Math.min(FILM, C);
+    return { A, C, B: k, delta: snapped ? k - rawB : 0 };
+  }
+
+  /* ================= 音频（真出声） ================= */
+  function filmSample(t){
+    const i = segAt(t);
+    if (i < 0) return 0.004 * (Math.random() * 2 - 1);
+    const s = SEGS[i];
+    const att = Math.min(1, (t - s[0]) / 0.10), dec = Math.min(1, (s[1] - t) / 0.16);
+    const syl = Math.abs(Math.sin(t * 27.3 + s[2] * 3.7)) * 0.72 + Math.abs(Math.sin(t * 9.1 + s[2])) * 0.28;
+    const wob = 0.72 + 0.28 * Math.sin(t * 1.63 + s[2]);
+    const amp = att * dec * (0.3 + 0.66 * syl) * wob;
+    const f0 = 95 + s[2] * 7, ph = 2 * Math.PI * f0 * t;
+    return amp * (0.55 * Math.sin(ph) + 0.28 * Math.sin(2 * ph + 1.3) + 0.12 * Math.sin(3 * ph + 0.4)) * 0.9;
+  }
+  function filmClip(from, to){
+    const n = Math.max(1, Math.round((to - from) * SR));
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) out[i] = filmSample(from + i / SR);
+    return out;
+  }
+  function narrSamples(text, seed){
+    const rng = mulberry32(seed);
+    const nch = Math.max(4, text.replace(/\s/g, '').length);
+    const dur = Math.min(9, Math.max(1.6, nch * 0.19));
+    const n = Math.floor(dur * SR);
+    const f0 = 148 + rng() * 46;
+    const sylR = 3.5 + rng() * 1.3, phrR = 0.5 + rng() * 0.3, j = rng() * 6;
+    const out = new Float32Array(n), fade = Math.floor(0.03 * SR);
+    for (let i = 0; i < n; i++){
+      const t = i / SR;
+      const syl = Math.pow(Math.abs(Math.sin(Math.PI * sylR * t + j)), 0.65);
+      const phrase = 0.22 + 0.78 * Math.pow(0.5 + 0.5 * Math.sin(2 * Math.PI * phrR * t + j), 1.6);
+      const f = f0 * (1 + 0.04 * Math.sin(2 * Math.PI * 1.3 * t));
+      const ph = 2 * Math.PI * f * t;
+      let v = syl * phrase * (0.6 * Math.sin(ph) + 0.3 * Math.sin(2 * ph) + 0.1 * Math.sin(3 * ph)) * 0.5;
+      if (i < fade) v *= i / fade;
+      if (i > n - fade) v *= (n - i) / fade;
+      out[i] = v;
+    }
+    return out;
+  }
+  function clickSm(){
+    const n = Math.floor(0.055 * SR), out = new Float32Array(n);
+    for (let i = 0; i < n; i++){
+      const t = i / SR;
+      const env = Math.exp(-t * 46);
+      out[i] = env * (0.55 * Math.sin(2 * Math.PI * 1180 * t) + 0.3 * Math.sin(2 * Math.PI * 2360 * t));
+    }
+    return out;
+  }
+  function cat(list){
+    let n = 0; for (const a of list) n += a.length;
+    const out = new Float32Array(n); let o = 0;
+    for (const a of list){ out.set(a, o); o += a.length; }
+    return out;
+  }
+  function wavBlob(sm){
+    const n = sm.length, buf = new ArrayBuffer(44 + n * 2), dv = new DataView(buf);
+    const wr = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+    wr(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); wr(8, 'WAVEfmt ');
+    dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+    dv.setUint32(24, SR, true); dv.setUint32(28, SR * 2, true);
+    dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+    wr(36, 'data'); dv.setUint32(40, n * 2, true);
+    for (let i = 0; i < n; i++){
+      const v = Math.max(-1, Math.min(1, sm[i]));
+      dv.setInt16(44 + i * 2, v * 32767, true);
+    }
+    return new Blob([buf], { type: 'audio/wav' });
+  }
+
+  /* ---- 极简 zip（store，不压缩）：把选中的片段打包 ---- */
+  function crc32(u8){
+    let c, crc = 0xFFFFFFFF;
+    for (let n = 0; n < u8.length; n++){
+      c = (crc ^ u8[n]) & 0xff;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+      crc = (crc >>> 8) ^ c;
+    }
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+  function zipBlob(files){
+    const enc = new TextEncoder();
+    const parts = [], central = [];
+    let off = 0;
+    for (const f of files){
+      const name = enc.encode(f.name), data = new Uint8Array(f.bytes);
+      const crc = crc32(data);
+      const lh = new Uint8Array(30 + name.length);
+      const dv = new DataView(lh.buffer);
+      dv.setUint32(0, 0x04034b50, true); dv.setUint16(4, 20, true); dv.setUint16(6, 0, true);
+      dv.setUint16(8, 0, true); dv.setUint16(10, 0, true); dv.setUint16(12, 0, true);
+      dv.setUint32(14, crc, true); dv.setUint32(18, data.length, true);
+      dv.setUint32(22, data.length, true); dv.setUint16(26, name.length, true);
+      dv.setUint16(28, 0, true);
+      lh.set(name, 30);
+      parts.push(lh, data);
+      const ch = new Uint8Array(46 + name.length);
+      const cv = new DataView(ch.buffer);
+      cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true); cv.setUint16(6, 20, true);
+      cv.setUint16(8, 0, true); cv.setUint16(10, 0, true); cv.setUint16(12, 0, true); cv.setUint16(14, 0, true);
+      cv.setUint32(16, crc, true); cv.setUint32(20, data.length, true); cv.setUint32(24, data.length, true);
+      cv.setUint16(28, name.length, true); cv.setUint32(42, off, true);
+      ch.set(name, 46);
+      central.push(ch);
+      off += lh.length + data.length;
+    }
+    const cdSize = central.reduce((a, b) => a + b.length, 0);
+    const end = new Uint8Array(22), ev = new DataView(end.buffer);
+    ev.setUint32(0, 0x06054b50, true); ev.setUint16(8, files.length, true);
+    ev.setUint16(10, files.length, true); ev.setUint32(12, cdSize, true);
+    ev.setUint32(16, off, true);
+    return new Blob([...parts, ...central, end], { type: 'application/zip' });
+  }
+
+  /* ================= 状态 ================= */
+  const P = { t: 42.6 };                 // 全局播放头
+  let samples = [];                      // 第一层
+  let uid = 0;
+  const MINSPAN = () => MINLEN;
+
+  function newSample(t){
+    const d = derive(t);
+    return { id: ++uid, A: d.A, C: d.C, prev: d.B, prevDelta: d.delta, inserts: [ newInsert(d.B) ] };
+  }
+  function newInsert(t){
+    return { id: ++uid, t, text: '', takes: [], sel: null, busy: false };
+  }
+
+  function minBT(s){ return s.inserts.length ? Math.min.apply(null, s.inserts.map(i => i.t)) : s.prev; }
+  function maxBT(s){ return s.inserts.length ? Math.max.apply(null, s.inserts.map(i => i.t)) : s.prev; }
+  function legalA(s){ return [Math.max(0.05, s.C - MAXLEN), Math.min(s.C - MINLEN, minBT(s) - 0.4)]; }
+  function legalC(s){ return [Math.max(s.A + MINLEN, maxBT(s) + 0.4), Math.min(FILM - 0.05, s.A + MAXLEN)]; }
+  function legalB(s, ins){
+    let lo = s.A + 0.4, hi = s.C - 0.4;
+    for (const o of s.inserts){
+      if (o === ins) continue;
+      if (Math.abs(o.t - ins.t) < 0.8){ if (o.t <= ins.t) lo = Math.max(lo, o.t + 0.8); else hi = Math.min(hi, o.t - 0.8); }
+    }
+    return [lo, hi];
+  }
+
+  /* ================= 播放 ================= */
+  let curAudio = null, curOwner = null;   // curOwner: {kind,sid,bid} 用来画进度
+  function playSm(sm, owner){
+    if (curAudio){ curAudio.pause(); curAudio = null; }
+    curAudio = new Audio(URL.createObjectURL(wavBlob(sm)));
+    curAudio.play();
+    curOwner = owner || null;
+    if (owner) animate(owner, sm.length / SR);
+    return curAudio;
+  }
+  function animate(owner, dur){
+    const au = curAudio, t0 = performance.now();
+    (function step(now){
+      if (!curAudio || curAudio !== au){ prog = null; drawAll(); return; }
+      prog = { owner, k: Math.min(1, (now - t0) / (dur * 1000)) };
+      drawOne(owner);
+      if (prog.k < 1) requestAnimationFrame(step);
+      else { prog = null; drawAll(); }
+    })(t0);
+  }
+  let prog = null;
+
+  // 整段试听：原声走到每个 B 滴一声；该 B 若已选定版本，滴声后接那一版旁白
+  function sliceSm(s){
+    const parts = [];
+    let cur = s.A;
+    for (const ins of s.inserts.slice().sort((a, b) => a.t - b.t)){
+      const t = Math.min(s.C, Math.max(s.A, ins.t));
+      parts.push(filmClip(cur, t));
+      parts.push(clickSm());
+      const tk = ins.sel != null ? ins.takes.find(x => x.id === ins.sel) : null;
+      if (tk) parts.push(narrSamples(ins.text, tk.seed));
+      cur = t;
+    }
+    parts.push(filmClip(cur, s.C));
+    return cat(parts);
+  }
+  function edgeSm(t, withClick){
+    const a = filmClip(Math.max(0, t - 1.5), t);
+    const b = filmClip(t, Math.min(FILM, t + 1.5));
+    return cat(withClick ? [a, clickSm(), b] : [a, b]);
+  }
+
+  /* ================= 画图 ================= */
+  const cssMap = {};
+  function cssVar(n){
+    if (cssMap[n]) return cssMap[n];
+    cssMap[n] = getComputedStyle(document.documentElement).getPropertyValue(n).trim() || '#0a84ff';
+    return cssMap[n];
+  }
+  function fmt(t){
+    const m = Math.floor(t / 60), s = t - m * 60;
+    return String(m).padStart(2, '0') + ':' + s.toFixed(1).padStart(4, '0');
+  }
+
+  function prep(cv){
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    cv.width = Math.round(cv.clientWidth * dpr);
+    cv.height = Math.round(cv.clientHeight * dpr);
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return ctx;
+  }
+
+  function drawWave(ctx, W, H, vs, ve){
+    const mid = H / 2;
+    for (let x = 0; x < W; x++){
+      const t = vs + x / W * (ve - vs);
+      const a = ampAt(t);
+      const h = Math.max(0.5, a * (H - 8));
+      ctx.fillStyle = cssVar('--bread');
+      ctx.globalAlpha = 0.55;
+      ctx.fillRect(x, mid - h / 2, 1, h);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawOver(cv, s){
+    const ctx = prep(cv), W = cv.clientWidth, H = cv.clientHeight, mid = H / 2;
+    ctx.clearRect(0, 0, W, H);
+    const vs = s.A, ve = s.C;
+    const xOf = (t) => (t - vs) / (ve - vs) * W;
+    drawWave(ctx, W, H, vs, ve);
+
+    // 每个 B 的标记点
+    for (const ins of s.inserts){
+      const x = xOf(ins.t);
+      const sel = ins.sel != null;
+      ctx.fillStyle = cssVar('--accent');
+      ctx.globalAlpha = sel ? 1 : 0.45;
+      ctx.fillRect(Math.round(x) - 0.5, 4, sel ? 1.6 : 1, H - 8);
+      ctx.beginPath();
+      ctx.moveTo(x - 4, 0); ctx.lineTo(x + 4, 0); ctx.lineTo(x, 5);
+      ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // 卡片内的预览播放头
+    const xp = xOf(s.prev);
+    ctx.fillStyle = cssVar('--label');
+    ctx.fillRect(Math.round(xp), 0, 1, H);
+    ctx.beginPath();
+    ctx.moveTo(xp - 3.5, H); ctx.lineTo(xp + 3.5, H); ctx.lineTo(xp, H - 4);
+    ctx.closePath(); ctx.fill();
+
+    if (prog && prog.owner.kind === 'over' && prog.owner.sid === s.id){
+      ctx.fillStyle = cssVar('--accent');
+      ctx.fillRect(Math.round(prog.k * W), 0, 1.2, H);
+    }
+  }
+
+  function drawEdge(cv, s, which){
+    const ctx = prep(cv), W = cv.clientWidth, H = cv.clientHeight, mid = H / 2;
+    ctx.clearRect(0, 0, W, H);
+    const t0 = (which === 'A') ? s.A : s.C;
+    const vs = t0 - 2.8, ve = t0 + 2.8;
+    const xOf = (t) => (t - vs) / (ve - vs) * W;
+    if (drag && drag.kind === which && drag.sid === s.id){
+      const b = which === 'A' ? legalA(s) : legalC(s);
+      const x1 = xOf(b[0]), x2 = xOf(b[1]);
+      ctx.fillStyle = cssVar('--accent'); ctx.globalAlpha = 0.1;
+      ctx.fillRect(x1, 0, Math.max(0, x2 - x1), H); ctx.globalAlpha = 1;
+    }
+    drawWave(ctx, W, H, vs, ve);
+    // 窗内其它 B 的位置
+    for (const ins of s.inserts){
+      const x = xOf(ins.t);
+      if (x > 2 && x < W - 2){
+        ctx.fillStyle = cssVar('--accent'); ctx.globalAlpha = 0.4;
+        ctx.fillRect(Math.round(x), 3, 1, H - 6); ctx.globalAlpha = 1;
+      }
+    }
+    const x = xOf(t0);
+    ctx.fillStyle = cssVar('--label');
+    ctx.fillRect(Math.round(x) - 0.5, 1, 1, H - 2);
+    if (prog && prog.owner.kind === which && prog.owner.sid === s.id){
+      ctx.fillStyle = cssVar('--accent');
+      ctx.fillRect(Math.round(prog.k * W), 0, 1.2, H);
+    }
+  }
+
+  function drawB(cv, s, ins){
+    const ctx = prep(cv), W = cv.clientWidth, H = cv.clientHeight;
+    ctx.clearRect(0, 0, W, H);
+    const vs = ins.t - 2.8, ve = ins.t + 2.8;
+    const xOf = (t) => (t - vs) / (ve - vs) * W;
+    if (drag && drag.kind === 'B' && drag.sid === s.id && drag.bid === ins.id){
+      const b = legalB(s, ins);
+      const x1 = xOf(b[0]), x2 = xOf(b[1]);
+      ctx.fillStyle = cssVar('--accent'); ctx.globalAlpha = 0.1;
+      ctx.fillRect(x1, 0, Math.max(0, x2 - x1), H); ctx.globalAlpha = 1;
+    }
+    drawWave(ctx, W, H, vs, ve);
+    const x = xOf(ins.t);
+    ctx.fillStyle = cssVar('--accent');
+    ctx.fillRect(Math.round(x) - 0.7, 1, 1.6, H - 2);
+    ctx.beginPath();
+    ctx.moveTo(x - 4, 0); ctx.lineTo(x + 4, 0); ctx.lineTo(x, 5);
+    ctx.closePath(); ctx.fill();
+    if (prog && prog.owner.kind === 'B' && prog.owner.sid === s.id && prog.owner.bid === ins.id){
+      ctx.fillStyle = cssVar('--accent');
+      ctx.fillRect(Math.round(prog.k * W), 0, 1.2, H);
+    }
+  }
+
+  // 第三次层里那一条：已生成的波形，兼作播放进度，不可拖
+  function envOf(tk, W){
+    if (tk._env && tk._envW === W) return tk._env;
+    const sm = tk.sm, env = new Float32Array(W);
+    const step = Math.max(1, Math.floor(sm.length / W));
+    for (let x = 0; x < W; x++){
+      let peak = 0;
+      const a = x * step, b = Math.min(sm.length, a + step);
+      for (let i = a; i < b; i++){ const v = sm[i] < 0 ? -sm[i] : sm[i]; if (v > peak) peak = v; }
+      env[x] = peak;
+    }
+    tk._env = env; tk._envW = W;
+    return env;
+  }
+  function drawTake(cv, tk){
+    const ctx = prep(cv), W = cv.clientWidth, H = cv.clientHeight, mid = H / 2;
+    ctx.clearRect(0, 0, W, H);
+    if (!tk.sm){ ctx.fillStyle = cssVar('--muted'); ctx.fillRect(0, mid - 0.5, W, 1); return; }
+    const env = envOf(tk, W);
+    const on = prog && prog.owner.kind === 'take' && prog.owner.tkid === tk.id;
+    const k = on ? prog.k : 0;
+    const bread = cssVar('--bread'), accent = cssVar('--accent');
+    for (let x = 0; x < W; x++){
+      const h = Math.max(0.6, Math.min(1, env[x] * 1.4) * (H - 6));
+      const played = k > 0 && x <= k * W;
+      ctx.fillStyle = played ? accent : bread;
+      ctx.globalAlpha = played ? 0.9 : 0.5;
+      ctx.fillRect(x, mid - h / 2, 1, h);
+    }
+    ctx.globalAlpha = 1;
+    if (k > 0){
+      ctx.fillStyle = accent;
+      ctx.fillRect(Math.round(k * W) - 0.5, 0, 1.2, H);
+    }
+  }
+
+  let drag = null;
+  function drawOne(owner){
+    const s = samples.find(x => x.id === owner.sid);
+    if (!s) return;
+    if (owner.kind === 'over') eachCv(owner, (cv) => drawOver(cv, s));
+    else if (owner.kind === 'A' || owner.kind === 'C') eachCv(owner, (cv) => drawEdge(cv, s, owner.kind));
+    else if (owner.kind === 'B'){
+      const ins = s.inserts.find(i => i.id === owner.bid);
+      if (ins) eachCv(owner, (cv) => drawB(cv, s, ins));
+    }
+    else if (owner.kind === 'take'){
+      for (const ins of s.inserts){
+        const tk = ins.takes.find(x => x.id === owner.tkid);
+        if (tk){ eachCv(owner, (cv) => drawTake(cv, tk)); break; }
+      }
+    }
+  }
+  function eachCv(owner, fn){
+    document.querySelectorAll('canvas.cv').forEach((cv) => {
+      if (cv.dataset.kind !== owner.kind) return;
+      if (+cv.dataset.sid !== owner.sid) return;
+      if (owner.bid != null && +cv.dataset.bid !== owner.bid) return;
+      if (owner.tkid != null && +cv.dataset.tkid !== owner.tkid) return;
+      fn(cv);
+    });
+  }
+  function drawAll(){
+    document.querySelectorAll('canvas.cv').forEach((cv) => {
+      const sid = +cv.dataset.sid;
+      const s = samples.find(x => x.id === sid);
+      if (!s) return;
+      if (cv.dataset.kind === 'over') drawOver(cv, s);
+      else if (cv.dataset.kind === 'A' || cv.dataset.kind === 'C') drawEdge(cv, s, cv.dataset.kind);
+      else if (cv.dataset.kind === 'take'){
+        for (const ins of s.inserts){
+          const tk = ins.takes.find(x => x.id === +cv.dataset.tkid);
+          if (tk){ drawTake(cv, tk); break; }
+        }
+      }
+      else {
+        const ins = s.inserts.find(i => i.id === +cv.dataset.bid);
+        if (ins) drawB(cv, s, ins);
+      }
+    });
+  }
+
+  /* ================= 渲染 ================= */
+  const cardsHost = document.getElementById('cards');
+  const SVG_PLAY = '<svg viewBox="0 0 10 12"><path d="M0 0l10 6-10 6z"/></svg>';
+
+  function render(){
+    cardsHost.innerHTML = '';
+    samples.forEach((s, i) => cardsHost.appendChild(cardEl(s, i)));
+    updateFoot();
+    drawAll();
+  }
+
+  function cardEl(s, i){
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.dataset.sid = s.id;
+    el.innerHTML =
+      '<div class="cardhd"><span class="idx">取样片段 ' + (i + 1) + '</span>' +
+      '<button class="del" data-act="delCard" title="删除此片段">✕</button></div>' +
+      '<div class="axis"><button class="play" data-act="playOver" title="试听整段">' + SVG_PLAY + '</button>' +
+      '<canvas class="cv over" data-kind="over" data-sid="' + s.id + '"></canvas></div>' +
+      '<div class="meta"><span class="span"></span><span class="prev"></span></div>' +
+      '<div class="axis"><span class="lab">A</span><button class="play" data-act="playA">' + SVG_PLAY + '</button>' +
+      '<canvas class="cv edge" data-kind="A" data-sid="' + s.id + '"></canvas></div>' +
+      '<div class="axis"><span class="lab">C</span><button class="play" data-act="playC">' + SVG_PLAY + '</button>' +
+      '<canvas class="cv edge" data-kind="C" data-sid="' + s.id + '"></canvas></div>';
+
+    const hostIns = document.createElement('div');
+    s.inserts.forEach((ins, j) => hostIns.appendChild(insEl(s, ins, j)));
+    el.appendChild(hostIns);
+
+    const add = document.createElement('button');
+    add.className = 'btn';
+    add.style.marginTop = '8px';
+    add.style.width = '100%';
+    add.textContent = '新增插入点 · ' + fmt(s.prev);
+    add.addEventListener('click', () => {
+      const t = Math.max(s.A + 0.4, Math.min(s.C - 0.4, s.prev));
+      s.inserts.push(newInsert(t));
+      render();
+    });
+    el.appendChild(add);
+
+    el.querySelectorAll('[data-act]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const act = b.dataset.act;
+        if (act === 'delCard'){ samples = samples.filter(x => x !== s); render(); }
+        else if (act === 'playOver') playSm(sliceSm(s), { kind: 'over', sid: s.id });
+        else if (act === 'playA') playSm(edgeSm(s.A, true), { kind: 'A', sid: s.id });
+        else if (act === 'playC') playSm(edgeSm(s.C, true), { kind: 'C', sid: s.id });
+      });
+    });
+
+    bindCanvas(el.querySelector('canvas.over'), 'over', s, null);
+    bindCanvas(el.querySelector('canvas[data-kind="A"]'), 'A', s, null);
+    bindCanvas(el.querySelector('canvas[data-kind="C"]'), 'C', s, null);
+
+    updateCardMeta(el, s);
+    return el;
+  }
+
+  function updateCardMeta(el, s){
+    el.querySelector('.span').textContent = (s.C - s.A).toFixed(1) + 's';
+    el.querySelector('.prev').textContent = '播放头 ' + fmt(s.prev);
+  }
+
+  function insEl(s, ins, j){
+    const el = document.createElement('div');
+    el.className = 'ins';
+    el.innerHTML =
+      '<div class="inshd"><span class="idx">插入 ' + (j + 1) + '</span>' +
+      '<span class="tc">' + fmt(ins.t) + '</span>' +
+      '<button class="del" data-act="delIns" title="删除此插入点">✕</button></div>' +
+      '<div class="axis"><span class="lab">B</span><button class="play" data-act="playB">' + SVG_PLAY + '</button>' +
+      '<canvas class="cv edge" data-kind="B" data-sid="' + s.id + '" data-bid="' + ins.id + '"></canvas></div>' +
+      '<textarea rows="2" placeholder="补哪一句？"></textarea>' +
+      '<div class="insacts"><span class="spacer"></span><button class="btn primary" data-act="gen">生成</button></div>' +
+      '<div class="takes"></div>';
+
+    const ta = el.querySelector('textarea');
+    ta.value = ins.text;
+    ta.addEventListener('input', () => {
+      ins.text = ta.value.trim();
+      el.querySelector('[data-act="gen"]').disabled = !ins.text || ins.busy;
+    });
+
+    el.querySelectorAll('[data-act]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const act = b.dataset.act;
+        if (act === 'delIns'){ s.inserts = s.inserts.filter(x => x !== ins); render(); }
+        else if (act === 'playB') playSm(edgeSm(ins.t, true), { kind: 'B', sid: s.id, bid: ins.id });
+        else if (act === 'gen') gen(s, ins);
+      });
+    });
+
+    bindCanvas(el.querySelector('canvas[data-kind="B"]'), 'B', s, ins);
+    paintTakes(el.querySelector('.takes'), s, ins);
+    el.querySelector('[data-act="gen"]').disabled = !ins.text || ins.busy;
+    return el;
+  }
+
+  function paintTakes(host, s, ins){
+    host.innerHTML = '';
+    ins.takes.forEach((tk) => {
+      const row = document.createElement('div');
+      row.className = 'take';
+      row.dataset.tkid = tk.id;
+      if (tk.pending){
+        const pct = Math.round((tk.p || 0) * 100);
+        row.innerHTML =
+          '<span class="k">第 ' + tk.n + ' 次</span>' +
+          '<div class="bar"><i style="width:' + pct + '%"></i></div>' +
+          '<span class="pct">' + pct + '%</span>';
+        host.appendChild(row);
+        return;
+      }
+      const sel = ins.sel === tk.id;
+      row.dataset.sel = sel ? '1' : '0';
+      row.innerHTML =
+        '<span class="k">第 ' + tk.n + ' 次</span>' +
+        '<button class="play" title="试听">' + SVG_PLAY + '</button>' +
+        '<canvas class="cv take" data-kind="take" data-sid="' + s.id + '" data-bid="' + ins.id +
+          '" data-tkid="' + tk.id + '"></canvas>' +
+        '<button class="pick">' + (sel ? '已选中' : '选中') + '</button>' +
+        '<button class="drop">丢弃</button>';
+      row.querySelector('.play').addEventListener('click', () => {
+        playSm(tk.sm || narrSamples(ins.text, tk.seed), { kind: 'take', sid: s.id, bid: ins.id, tkid: tk.id });
+      });
+      row.querySelector('.pick').addEventListener('click', () => {
+        ins.sel = ins.sel === tk.id ? null : tk.id;
+        render();
+      });
+      row.querySelector('.drop').addEventListener('click', () => {
+        ins.takes = ins.takes.filter(x => x !== tk);
+        if (ins.sel === tk.id) ins.sel = null;
+        render();
+      });
+      host.appendChild(row);
+    });
+  }
+
+  function gen(s, ins){
+    if (!ins.text || ins.busy) return;
+    ins.busy = true;
+    ins.count = (ins.count || 0) + 1;
+    const tk = { id: ++uid, n: ins.count, seed: (Date.now() & 0xffff) ^ (ins.count * 7919),
+                 pending: true, p: 0, sm: null };
+    ins.takes.push(tk);
+    render();
+    const iv = setInterval(() => {
+      tk.p = Math.min(1, tk.p + 0.07 + Math.random() * 0.09);
+      const row = document.querySelector('.take[data-tkid="' + tk.id + '"]');
+      if (row){
+        const bar = row.querySelector('.bar i'), pct = row.querySelector('.pct');
+        if (bar) bar.style.width = Math.round(tk.p * 100) + '%';
+        if (pct) pct.textContent = Math.round(tk.p * 100) + '%';
+      }
+      if (tk.p >= 1){
+        clearInterval(iv);
+        tk.pending = false; tk.p = 1;
+        tk.sm = narrSamples(ins.text, tk.seed);
+        ins.sel = tk.id;
+        ins.busy = false;
+        render();
+        updateFoot();
+        setTimeout(() => playSm(tk.sm, { kind: 'take', sid: s.id, bid: ins.id, tkid: tk.id }), 60);
+      }
+    }, 90);
+  }
+
+  /* ================= 画布交互 ================= */
+  function bindCanvas(cv, kind, s, ins){
+    let px = null;
+    cv.addEventListener('pointerdown', (e) => {
+      try { cv.setPointerCapture(e.pointerId); } catch (_) {}
+      px = e.clientX;
+      if (kind === 'over'){
+        setPrev(s, e.clientX - cv.getBoundingClientRect().left, cv.clientWidth);
+      } else {
+        drag = { kind, sid: s.id, bid: ins ? ins.id : null };
+        if (kind === 'B') drag.raw = ins.t;
+        drawAll();
+      }
+    });
+    cv.addEventListener('pointermove', (e) => {
+      if (px == null) return;
+      const W = cv.clientWidth;
+      const dt = (e.clientX - px) / W * (kind === 'over' ? (s.C - s.A) : 5.6);
+      px = e.clientX;
+      if (Math.abs(dt) < 1e-4) return;
+      if (kind === 'over'){ setPrev(s, e.clientX - cv.getBoundingClientRect().left, W); return; }
+      const b = kind === 'A' ? legalA(s) : kind === 'C' ? legalC(s) : legalB(s, ins);
+      let nt = s[kind];
+      if (kind === 'B') nt = ins.t;
+      // 视图以该点为心，波形要 1:1 跟手：手往右，画面往右，等于窗口往时间轴反方向走
+      nt = Math.max(b[0], Math.min(b[1], nt - dt));
+      if (kind === 'B'){
+        const raw = Math.max(b[0], Math.min(b[1],
+          ((drag && drag.raw != null) ? drag.raw : ins.t) - dt));
+        if (drag) drag.raw = raw;
+        let bd = DRAG_MAGNET, bc = null;
+        for (const g of GAPS){
+          const c = (g[0] + g[1]) / 2, d = Math.abs(c - raw);
+          if (d < bd){ bd = d; bc = c; }
+        }
+        nt = (bc !== null && bc >= b[0] && bc <= b[1]) ? bc : raw;
+        ins.t = nt;
+        const hd = cv.closest('.ins');
+        if (hd){ const tc = hd.querySelector('.tc'); if (tc) tc.textContent = fmt(ins.t); }
+      } else {
+        s[kind] = nt;
+        // 边界推进时，允许把 B 顶开（保证 A < B < C）
+        for (const o of s.inserts){
+          o.t = Math.max(s.A + 0.4, Math.min(s.C - 0.4, o.t));
+        }
+      }
+      drawAll();
+      const card = cv.closest('.card');
+      if (card) updateCardMeta(card, s);
+    });
+    const up = () => { px = null; if (drag){ drag = null; drawAll(); } };
+    cv.addEventListener('pointerup', up);
+    cv.addEventListener('pointercancel', up);
+  }
+  function setPrev(s, x, W){
+    s.prev = Math.max(s.A, Math.min(s.C, s.A + x / W * (s.C - s.A)));
+    const card = document.querySelector('.card[data-sid="' + s.id + '"]');
+    if (card) updateCardMeta(card, s);
+    drawAll();
+  }
+
+  /* ================= 全局播放头（真机由 IINA 提供） ================= */
+  const track = document.getElementById('track');
+  const trackph = document.getElementById('trackph');
+  const trackfill = document.getElementById('trackfill');
+  const tcEl = document.getElementById('tc');
+  function setPlayhead(t){
+    P.t = Math.max(0, Math.min(FILM, t));
+    const pct = P.t / FILM * 100;
+    trackph.style.left = pct + '%';
+    trackfill.style.width = pct + '%';
+    tcEl.textContent = fmt(P.t);
+  }
+  let td = false;
+  track.addEventListener('pointerdown', (e) => { td = true; try{track.setPointerCapture(e.pointerId);}catch(_){} setPlayhead(x2t(e.clientX)); });
+  track.addEventListener('pointermove', (e) => { if (td) setPlayhead(x2t(e.clientX)); });
+  track.addEventListener('pointerup', () => { td = false; });
+  function x2t(cx){ const r = track.getBoundingClientRect(); return (cx - r.left) / r.width * FILM; }
+
+  /* ================= 底部两个出口 ================= */
+  function selected(){
+    const out = [];
+    samples.forEach((s, i) => s.inserts.forEach((ins, j) => {
+      const tk = ins.sel != null ? ins.takes.find(x => x.id === ins.sel) : null;
+      if (tk) out.push({ s, i, ins, j, tk });
+    }));
+    return out;
+  }
+  function updateFoot(){
+    const n = selected().length;
+    document.getElementById('dlAll').disabled = n === 0;
+    document.getElementById('insAll').disabled = n === 0;
+    document.getElementById('dlAll').textContent = n ? '下载所有片段 · ' + n : '下载所有片段';
+  }
+
+  document.getElementById('addSample').addEventListener('click', () => {
+    samples.push(newSample(P.t));
+    render();
+  });
+
+  document.getElementById('dlAll').addEventListener('click', async () => {
+    const sel = selected();
+    if (!sel.length) return;
+    const files = [];
+    for (const it of sel){
+      const sm = it.tk.sm || narrSamples(it.ins.text, it.tk.seed);
+      const buf = await wavBlob(sm).arrayBuffer();
+      files.push({ name: '取样' + (it.i + 1) + '_插入' + (it.j + 1) + '_第' + it.tk.n + '次.wav', bytes: buf });
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(zipBlob(files));
+    a.download = '两面包夹芝士_选中片段.zip';
+    a.click();
+  });
+
+  document.getElementById('insAll').addEventListener('click', () => {
+    const n = selected().length;
+    alert('原型：把 ' + n + ' 段按各自 B 的位置插回原片，生成整条并已在访达中显示。');
+  });
+
+  /* ================= 启动 ================= */
+  window.addEventListener('resize', drawAll);
+  setPlayhead(42.6);
+  samples.push(newSample(P.t));
+  render();
+})();
+</script>
+</body>
+</html>

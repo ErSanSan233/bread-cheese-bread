@@ -3,7 +3,9 @@
  * iina.core / iina.mpv / iina.overlay / iina.sidebar 都属于窗口。
  *
  * 界面形态：主面板是 iina.sidebar，嵌在播放器右侧；即时提示是 iina.overlay，
- * 浮在画面上。全程不依赖外部浏览器。
+ * 浮在画面上。面板底部还有两个「看看 XX 长什么样」的实验按钮，用来直观对比
+ * overlay 与 standaloneWindow（完全独立的窗口，不挤不盖）这两种形态。
+ * 全程不依赖外部浏览器。
  *
  * 与面板的通信走官方消息桥（iina.sidebar.postMessage / window.iina.postMessage），
  * 即时双向，不用轮询，也不经过后端。后端只负责合成这类重活。
@@ -14,6 +16,8 @@
 
 const PORT = 8733;
 const panel = iina.sidebar;
+// 独立窗口形态（实验性对比用）。旧版 IINA 可能没有这个 API，用前先判空
+const win = (typeof iina !== "undefined" && iina.standaloneWindow) ? iina.standaloneWindow : null;
 
 /** 当前三个打点，null 表示未设置。A < B < C。 */
 let marks = { a: null, b: null, c: null };
@@ -28,6 +32,9 @@ let previewFrom = null;
 let previewArmedAt = 0;
 // 面板通过官方桥报到过 = 双向可用。之后状态直接推给页面，不再绕后端
 let bridgeUp = false;
+// 独立窗口（standaloneWindow）实验预览是否开着。开着时哪怕桥已通，也要走一遍
+// 后端中继把状态喂给它——它和侧栏是两个独立的 webview 实例
+let standaloneOpen = false;
 
 function toPath(url) {
   if (!url) return null;
@@ -518,25 +525,85 @@ function bindPanelMessages() {
     // 面板下的指令。这个回调来自 WKScriptMessageHandler，跑在主线程，
     // 所以这里可以动播放器。提示仍然只回给面板 —— 面板本来就在用户眼前，
     // 不必为了它去碰画面浮层。
-    panel.onMessage("cmd", function (d) {
-      const data = (d && d.data) || {};
-      switch (d && d.cmd) {
-        case "setMark": setMark(data.role, true); break;
-        case "setMarkAt": setMark(data.role, true, data.t); break;
-        case "clearMarks": clearMarks(true); break;
-        // 再点一次就是停 —— 播区间有自动停止，但也要能手动打断
-        case "preview": if (previewUntil !== null) stopPreview(null); else previewRef(true); break;
-        case "playRange": playRange(data.from, data.to, data.label || "这一段", true); break;
-        case "stop": stopPreview(null); break;
-        case "goto":
-          try { iina.mpv.set("time-pos", Math.max(0, data.t || 0)); } catch (e) { /* 忽略 */ }
-          break;
-        case "toggle": togglePause(); break;
-        case "previewOverlay": toggleOverlay(data && data.on); break;
-        default: break;
-      }
-    });
+    panel.onMessage("cmd", function (d) { handleCmd(d); });
   });
+}
+
+/**
+ * 面板指令统一处理。侧栏与独立窗口两套 webview 共用同一份逻辑 ——
+ * 谁发来的都走这里；区别只在回复时走各自的桥（见 sayToPanel / pushStateToPanel）。
+ */
+function handleCmd(d) {
+  const data = (d && d.data) || {};
+  switch (d && d.cmd) {
+    case "setMark": setMark(data.role, true); break;
+    case "setMarkAt": setMark(data.role, true, data.t); break;
+    case "clearMarks": clearMarks(true); break;
+    // 再点一次就是停 —— 播区间有自动停止，但也要能手动打断
+    case "preview": if (previewUntil !== null) stopPreview(null); else previewRef(true); break;
+    case "playRange": playRange(data.from, data.to, data.label || "这一段", true); break;
+    case "stop": stopPreview(null); break;
+    case "goto":
+      try { iina.mpv.set("time-pos", Math.max(0, data.t || 0)); } catch (e) { /* 忽略 */ }
+      break;
+    case "toggle": togglePause(); break;
+    case "previewOverlay": toggleOverlay(data && data.on); break;
+    case "previewStandalone": toggleStandaloneWindow(data && data.on); break;
+    default: break;
+  }
+}
+
+/**
+ * 独立窗口（standaloneWindow）实验预览。和侧栏是两套独立的 webview：
+ * 一个浮在播放器旁边、完全不挤不盖的独立窗口，可拖动、可移到副屏。
+ *
+ * 由面板「独立窗口预览」按钮 toggle 控制。off 时尽量关掉窗口；
+ * 若当前 IINA 版本没有这个 API，给出提示而不是静默失效。
+ *
+ * 注册时机同侧栏：loadFile 内部会清监听，所以 onMessage 必须排在 loadFile 之后。
+ * 即便这个 webview 没被注入官方桥，面板页面自己有「桥不通就轮询后端」的兜底
+ * （见 ui/index.html 的看门狗），所以状态照样能显示出来。
+ */
+function toggleStandaloneWindow(on) {
+  if (!win) {
+    flash("当前 IINA 版本不支持独立窗口（standaloneWindow）", true);
+    return;
+  }
+  try {
+    if (!on) {
+      standaloneOpen = false;
+      try { win.close(); } catch (e) { /* 某些版本没有 close，忽略 */ }
+      return;
+    }
+    win.setProperty({ title: "两面包夹芝士", resizable: true });
+    win.setFrame(560, 720);
+    win.loadFile("ui/index.html");
+    bindStandaloneMessages(win);   // 必须排在 loadFile 之后，否则监听会被清掉
+    win.open();
+    standaloneOpen = true;
+    pushState();
+    pushMarks();
+  } catch (e) {
+    standaloneOpen = false;
+    flash("打开独立窗口失败：" + String(e), true);
+    diag({ stage: "打开独立窗口失败", error: String(e) });
+  }
+}
+
+/** 给独立窗口的 webview 绑监听，逻辑与侧栏一致。没有桥时注册也无副作用。 */
+function bindStandaloneMessages(target) {
+  if (!target) return;
+  try {
+    target.onMessage("ui-ready", function () {
+      bridgeUp = true;   // 独立窗口报到，说明这一侧桥也是通的
+      diag({ stage: "ui-ready（独立窗口桥已通）", bridgeUp: bridgeUp });
+      pushStateToPanel();
+      sayToPanel("marks", marks);
+    });
+    target.onMessage("cmd", function (d) { handleCmd(d); });
+  } catch (e) {
+    /* 独立窗口可能不提供桥，页面会自行退回轮询，这里不用强求 */
+  }
 }
 
 /* ---------- 启动 ---------- */
@@ -613,13 +680,13 @@ MENU.forEach(function (m) {
 step("周期同步", function () {
   setInterval(function () {
     watchPreview();          // 试听到 C 自动停，与用不用桥无关
-    if (bridgeUp) {
-      // 桥通了：状态直接推给页面，纯本地调用，一轮网络请求都不发
+    if (bridgeUp && !standaloneOpen) {
+      // 桥通了且没开独立窗口：状态直接推给页面，纯本地调用，一轮网络请求都不发
       pushStateToPanel();
       return;
     }
-    // 桥没通才退回后端会话。这里不以「面板显示过」为闸门：点侧栏标签打开面板
-    // 走不到菜单那条路，拿不到 panelShown，闸门一关面板就永远是空的
+    // 桥没通，或者独立窗口正开着 —— 独立窗口是另一个 webview 实例，必须靠后端
+    // 中继把状态喂给它、并捞走它下的指令（面板页面有轮询兜底，桥在不在都行）
     pushState();
     drainPanelCommands();
   }, 1200);
