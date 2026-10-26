@@ -92,13 +92,24 @@
   .axis{display:flex;align-items:center;gap:7px;margin-top:8px}
   .al{font-size:10.5px;color:var(--label3);width:16px;flex:none;text-align:center}
   .lab{font-size:10.5px;color:var(--label3);width:24px;flex:none}
+  .lab.wide{width:38px}
   .play{width:20px;height:20px;border-radius:50%;border:0;background:var(--chip);cursor:pointer;flex:none;
     display:grid;place-items:center;padding:0;color:var(--label2)}
   .play:hover{background:var(--chipHi);color:var(--label)}
   .play svg{width:8px;height:8px;fill:currentColor}
   canvas.cv{display:block;flex:1;min-width:0;height:30px;border-radius:var(--rsm);background:var(--chip);
     touch-action:none}
-  canvas.cv.over{height:38px;cursor:pointer}
+  canvas.cv.over{height:38px;cursor:pointer;background:transparent}   /* 预览波形只有中心线 */
+  .hidden{display:none !important}
+  .dotsrow{display:flex;align-items:center;justify-content:space-between;margin:0 0 0 27px;
+    height:15px}
+  .dotbtn{width:15px;height:15px;border:0;background:transparent;cursor:pointer;padding:0;
+    display:grid;place-items:center;border-radius:50%;flex:none}
+  .dotbtn i{width:7px;height:7px;border-radius:50%;background:var(--label3);display:block}
+  .dotbtn:hover i{background:var(--label)}
+  .dotbtn[data-on="1"] i{background:var(--accent)}
+  .idots{position:relative;height:15px;margin:1px 0 0 27px}
+  .idots .idot{position:absolute;top:0;transform:translateX(-50%)}
   canvas.cv.edge{cursor:ew-resize}
   .meta{margin-top:3px;display:flex;justify-content:space-between;font-size:10.5px;color:var(--label3);
     font-variant-numeric:tabular-nums}
@@ -364,7 +375,9 @@
 
   function newSample(t){
     const d = derive(t);
-    return { id: ++uid, A: d.A, C: d.C, prev: d.B, prevDelta: d.delta, inserts: [ newInsert(d.B) ] };
+    const ins = newInsert(d.B);
+    return { id: ++uid, A: d.A, C: d.C, prev: d.B, prevDelta: d.delta,
+             inserts: [ ins ], open: { k: 'ins', id: ins.id } };
   }
   function newInsert(t){
     return { id: ++uid, t, text: '', takes: [], sel: null, busy: false };
@@ -433,6 +446,20 @@
     cssMap[n] = getComputedStyle(document.documentElement).getPropertyValue(n).trim() || '#0a84ff';
     return cssMap[n];
   }
+  const CN = '零一二三四五六七八九';
+  function cnNum(n){
+    if (n <= 0) return '零';
+    if (n < 10) return CN[n];
+    if (n === 10) return '十';
+    if (n < 20) return '十' + CN[n - 10];
+    if (n < 100) return CN[Math.floor(n / 10)] + '十' + (n % 10 ? CN[n % 10] : '');
+    return String(n);
+  }
+  function letter(n){
+    let s = ''; n -= 1;
+    do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0);
+    return s;
+  }
   function fmt(t){
     const m = Math.floor(t / 60), s = t - m * 60;
     return String(m).padStart(2, '0') + ':' + s.toFixed(1).padStart(4, '0');
@@ -465,12 +492,16 @@
     ctx.clearRect(0, 0, W, H);
     const vs = s.A, ve = s.C;
     const xOf = (t) => (t - vs) / (ve - vs) * W;
+    ctx.fillStyle = cssVar('--muted');
+    ctx.globalAlpha = 0.55;
+    ctx.fillRect(0, Math.round(mid), W, 1);
+    ctx.globalAlpha = 1;
     drawWave(ctx, W, H, vs, ve);
 
     // 每个 B 的标记点
     for (const ins of s.inserts){
       const x = xOf(ins.t);
-      const sel = ins.sel != null;
+      const sel = ins.sel != null || (s.open && s.open.k === 'ins' && s.open.id === ins.id);
       ctx.fillStyle = cssVar('--accent');
       ctx.globalAlpha = sel ? 1 : 0.45;
       ctx.fillRect(Math.round(x) - 0.5, 4, sel ? 1.6 : 1, H - 8);
@@ -646,48 +677,118 @@
     el.className = 'card';
     el.dataset.sid = s.id;
     el.innerHTML =
-      '<div class="cardhd"><span class="idx">取样片段 ' + (i + 1) + '</span>' +
+      '<div class="cardhd"><span class="idx">取样片段 ' + cnNum(i + 1) + '</span>' +
       '<button class="del" data-act="delCard" title="删除此片段">✕</button></div>' +
+      '<div class="dotsrow" data-row="top">' +
+        '<button class="dotbtn" data-act="dotA" title="调整起点"><i></i></button>' +
+        '<button class="dotbtn" data-act="dotC" title="调整止点"><i></i></button>' +
+      '</div>' +
+      '<div data-row="topaxis"></div>' +
       '<div class="axis"><button class="play" data-act="playOver" title="试听整段">' + SVG_PLAY + '</button>' +
       '<canvas class="cv over" data-kind="over" data-sid="' + s.id + '"></canvas></div>' +
       '<div class="meta"><span class="span"></span><span class="prev"></span></div>' +
-      '<div class="axis"><span class="lab">A</span><button class="play" data-act="playA">' + SVG_PLAY + '</button>' +
-      '<canvas class="cv edge" data-kind="A" data-sid="' + s.id + '"></canvas></div>' +
-      '<div class="axis"><span class="lab">C</span><button class="play" data-act="playC">' + SVG_PLAY + '</button>' +
-      '<canvas class="cv edge" data-kind="C" data-sid="' + s.id + '"></canvas></div>';
+      '<div class="idots" data-row="idots"></div>' +
+      '<div data-row="insHost"></div>';
 
-    const hostIns = document.createElement('div');
-    s.inserts.forEach((ins, j) => hostIns.appendChild(insEl(s, ins, j)));
-    el.appendChild(hostIns);
-
-    const add = document.createElement('button');
-    add.className = 'btn';
-    add.style.marginTop = '8px';
-    add.style.width = '100%';
-    add.textContent = '新增插入点 · ' + fmt(s.prev);
-    add.addEventListener('click', () => {
-      const t = Math.max(s.A + 0.4, Math.min(s.C - 0.4, s.prev));
-      s.inserts.push(newInsert(t));
-      render();
+    el.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-act]');
+      if (!b) return;
+      const act = b.dataset.act;
+      if (act === 'delCard'){ samples = samples.filter(x => x !== s); render(); }
+      else if (act === 'playOver') playSm(sliceSm(s), { kind: 'over', sid: s.id });
+      else if (act === 'playA') playSm(edgeSm(s.A, true), { kind: 'A', sid: s.id });
+      else if (act === 'playC') playSm(edgeSm(s.C, true), { kind: 'C', sid: s.id });
+      else if (act === 'dotA') toggle(s, { k: 'A' });
+      else if (act === 'dotC') toggle(s, { k: 'C' });
+      else if (act === 'addIns') addIns(s);
     });
-    el.appendChild(add);
 
-    el.querySelectorAll('[data-act]').forEach((b) => {
-      b.addEventListener('click', () => {
-        const act = b.dataset.act;
-        if (act === 'delCard'){ samples = samples.filter(x => x !== s); render(); }
-        else if (act === 'playOver') playSm(sliceSm(s), { kind: 'over', sid: s.id });
-        else if (act === 'playA') playSm(edgeSm(s.A, true), { kind: 'A', sid: s.id });
-        else if (act === 'playC') playSm(edgeSm(s.C, true), { kind: 'C', sid: s.id });
-      });
+    el.querySelector('[data-row="idots"]').addEventListener('click', (e) => {
+      const b = e.target.closest('.idot');
+      if (!b) return;
+      toggle(s, { k: 'ins', id: +b.dataset.id });
     });
 
     bindCanvas(el.querySelector('canvas.over'), 'over', s, null);
-    bindCanvas(el.querySelector('canvas[data-kind="A"]'), 'A', s, null);
-    bindCanvas(el.querySelector('canvas[data-kind="C"]'), 'C', s, null);
 
+    const add = document.createElement('button');
+    add.className = 'btn';
+    add.style.marginTop = '6px';
+    add.style.width = '100%';
+    add.dataset.act = 'addIns';
+    add.textContent = '新增插入点 · ' + fmt(s.prev);
+    el.appendChild(add);
+
+    applyOpen(el, s);
     updateCardMeta(el, s);
     return el;
+  }
+
+  /* 展开态：一次只有一个轴；调起止时插入收成圆点，调插入时上面两个圆点隐藏 */
+  function toggle(s, next){
+    const cur = s.open;
+    const same = cur && cur.k === next.k && (next.id == null || cur.id === next.id);
+    s.open = same ? null : next;
+    const el = document.querySelector('.card[data-sid="' + s.id + '"]');
+    if (el){ applyOpen(el, s); drawAll(); }
+  }
+
+  function addIns(s){
+    const t = Math.max(s.A + 0.4, Math.min(s.C - 0.4, s.prev));
+    const ins = newInsert(t);
+    s.inserts.push(ins);
+    s.open = { k: 'ins', id: ins.id };
+    render();
+  }
+
+  function applyOpen(el, s){
+    const openIns = !!(s.open && s.open.k === 'ins');
+    const top = el.querySelector('[data-row="top"]');
+    top.classList.toggle('hidden', openIns);
+    top.querySelector('[data-act="dotA"]').dataset.on = (s.open && s.open.k === 'A') ? '1' : '0';
+    top.querySelector('[data-act="dotC"]').dataset.on = (s.open && s.open.k === 'C') ? '1' : '0';
+
+    const ax = el.querySelector('[data-row="topaxis"]');
+    const which = (s.open && (s.open.k === 'A' || s.open.k === 'C')) ? s.open.k : null;
+    if (which){
+      if (ax.dataset.k !== which){
+        ax.dataset.k = which;
+        ax.innerHTML =
+          '<div class="axis"><span class="lab">' + (which === 'A' ? '起' : '止') + '</span>' +
+          '<button class="play" data-act="play' + which + '" title="试听">' + SVG_PLAY + '</button>' +
+          '<canvas class="cv edge" data-kind="' + which + '" data-sid="' + s.id + '"></canvas></div>';
+        bindCanvas(ax.querySelector('canvas'), which, s, null);
+      }
+      ax.classList.remove('hidden');
+    } else {
+      ax.dataset.k = ''; ax.innerHTML = ''; ax.classList.add('hidden');
+    }
+
+    paintDots(el, s);
+
+    const host = el.querySelector('[data-row="insHost"]');
+    host.innerHTML = '';
+    if (openIns){
+      const j = s.inserts.findIndex(x => x.id === s.open.id);
+      if (j >= 0) host.appendChild(insEl(s, s.inserts[j], j));
+    }
+  }
+
+  function paintDots(el, s){
+    const host = el.querySelector('[data-row="idots"]');
+    if (!host) return;
+    host.innerHTML = '';
+    const openId = (s.open && s.open.k === 'ins') ? s.open.id : null;
+    s.inserts.forEach((ins, j) => {
+      const b = document.createElement('button');
+      b.className = 'idot dotbtn';
+      b.dataset.id = ins.id;
+      b.dataset.on = ins.id === openId ? '1' : '0';
+      b.title = '插入 ' + letter(j + 1) + ' · ' + fmt(ins.t);
+      b.style.left = Math.max(0, Math.min(100, (ins.t - s.A) / (s.C - s.A) * 100)) + '%';
+      b.innerHTML = '<i></i>';
+      host.appendChild(b);
+    });
   }
 
   function updateCardMeta(el, s){
@@ -699,10 +800,10 @@
     const el = document.createElement('div');
     el.className = 'ins';
     el.innerHTML =
-      '<div class="inshd"><span class="idx">插入 ' + (j + 1) + '</span>' +
+      '<div class="inshd"><span class="idx">插入 ' + letter(j + 1) + '</span>' +
       '<span class="tc">' + fmt(ins.t) + '</span>' +
       '<button class="del" data-act="delIns" title="删除此插入点">✕</button></div>' +
-      '<div class="axis"><span class="lab">B</span><button class="play" data-act="playB">' + SVG_PLAY + '</button>' +
+      '<div class="axis"><span class="lab wide">插入点</span><button class="play" data-act="playB">' + SVG_PLAY + '</button>' +
       '<canvas class="cv edge" data-kind="B" data-sid="' + s.id + '" data-bid="' + ins.id + '"></canvas></div>' +
       '<textarea rows="2" placeholder="补哪一句？"></textarea>' +
       '<div class="insacts"><span class="spacer"></span><button class="btn primary" data-act="gen">生成</button></div>' +
@@ -718,7 +819,11 @@
     el.querySelectorAll('[data-act]').forEach((b) => {
       b.addEventListener('click', () => {
         const act = b.dataset.act;
-        if (act === 'delIns'){ s.inserts = s.inserts.filter(x => x !== ins); render(); }
+        if (act === 'delIns'){
+          s.inserts = s.inserts.filter(x => x !== ins);
+          if (s.open && s.open.id === ins.id) s.open = null;
+          render();
+        }
         else if (act === 'playB') playSm(edgeSm(ins.t, true), { kind: 'B', sid: s.id, bid: ins.id });
         else if (act === 'gen') gen(s, ins);
       });
@@ -847,7 +952,7 @@
       }
       drawAll();
       const card = cv.closest('.card');
-      if (card) updateCardMeta(card, s);
+      if (card){ updateCardMeta(card, s); paintDots(card, s); }
     });
     const up = () => { px = null; if (drag){ drag = null; drawAll(); } };
     cv.addEventListener('pointerup', up);
@@ -906,7 +1011,8 @@
     for (const it of sel){
       const sm = it.tk.sm || narrSamples(it.ins.text, it.tk.seed);
       const buf = await wavBlob(sm).arrayBuffer();
-      files.push({ name: '取样' + (it.i + 1) + '_插入' + (it.j + 1) + '_第' + it.tk.n + '次.wav', bytes: buf });
+      files.push({ name: '取样' + cnNum(it.i + 1) + '_插入' + letter(it.j + 1) + '_第' + it.tk.n + '次.wav',
+                   bytes: buf });
     }
     const a = document.createElement('a');
     a.href = URL.createObjectURL(zipBlob(files));
