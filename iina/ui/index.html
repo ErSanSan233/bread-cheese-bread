@@ -382,6 +382,10 @@
 
   <div class="status" id="st"></div>
 
+  <div class="footrow" style="margin-top:16px;text-align:center">
+    <button class="link" id="btnOv">看看浮层(overlay)长什么样</button>
+  </div>
+
 <script>
 (function () {
   var el = function (id) { return document.getElementById(id); };
@@ -1280,6 +1284,12 @@
   el("text").addEventListener("input", paint);
   el("btnGen").addEventListener("click", function () { run("narration"); });
   el("btnGen2").addEventListener("click", function () { run("sandwich"); });
+  var overlayOn = false;
+  el("btnOv").addEventListener("click", function () {
+    overlayOn = !overlayOn;
+    send("previewOverlay", { on: overlayOn });
+    el("btnOv").textContent = overlayOn ? "收起浮层预览" : "看看浮层(overlay)长什么样";
+  });
   el("btnReveal").addEventListener("click", function () {
     var p = st.result && (st.result.out_wav || st.result.out_dir);
     if (!p) return;

@@ -116,6 +116,41 @@ function flash(message, isError) {
   }
 }
 
+/**
+ * 实验性：把一个有质感的浮层卡片显示在视频画面上，用来直观对比 overlay 与
+ * sidebar 的区别——overlay 盖在画面上、不挤视频宽度、不占侧栏空间。
+ * 由面板「浮层预览」按钮 toggle 控制；on=false 时收起。
+ */
+function toggleOverlay(on) {
+  try {
+    if (!on) { iina.overlay.hide(); return; }
+    iina.overlay.simpleMode();
+    iina.overlay.setStyle(
+      "html,body{margin:0;height:100%;background:transparent!important;overflow:hidden}" +
+      ".card{position:absolute;top:18px;right:18px;width:264px;box-sizing:border-box;" +
+      "padding:16px 16px 14px;border-radius:14px;background:rgba(28,28,30,.66);" +
+      "-webkit-backdrop-filter:blur(22px) saturate(160%);backdrop-filter:blur(22px) saturate(160%);" +
+      "border:1px solid rgba(255,255,255,.14);color:#fff;" +
+      "font:13px/1.45 -apple-system,'PingFang SC',sans-serif;box-shadow:0 12px 40px rgba(0,0,0,.45)}" +
+      ".t{font-size:15px;font-weight:600;margin-bottom:6px}" +
+      ".s{color:rgba(255,255,255,.82)}" +
+      ".d{margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.12);" +
+      "font-size:11px;color:rgba(255,255,255,.55)}",
+    );
+    iina.overlay.setContent(
+      "<div class='card'>" +
+      "<div class='t'>两面包夹芝士</div>" +
+      "<div class='s'>这是 <b>overlay</b> 浮层——直接盖在视频画面上，不占侧栏、" +
+      "也不挤视频宽度。视频保持全宽，就是它和侧栏形态的区别。</div>" +
+      "<div class='d'>点面板里的「收起浮层预览」即可隐藏</div>" +
+      "</div>",
+    );
+    iina.overlay.show();
+  } catch (e) {
+    try { iina.core.osd("overlay 不可用：" + e); } catch (e2) { /* 放弃 */ }
+  }
+}
+
 /* ---------- 与后端通信 ---------- */
 
 function postSession(payload) {
@@ -497,6 +532,7 @@ function bindPanelMessages() {
           try { iina.mpv.set("time-pos", Math.max(0, data.t || 0)); } catch (e) { /* 忽略 */ }
           break;
         case "toggle": togglePause(); break;
+        case "previewOverlay": toggleOverlay(data && data.on); break;
         default: break;
       }
     });
