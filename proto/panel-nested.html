@@ -24,7 +24,29 @@
     --bread: rgba(0,0,0,.42);
     --muted: rgba(0,0,0,.3);
     --r: 10px; --rsm: 7px; --rxs: 5px;
+    /*
+     * 间距标尺（4px 基准，四档）—— 所有 margin / padding / gap 只能从这四档取值
+     *   s1  4px  紧凑：列表行上下、进度条与说明文字
+     *   s2  8px  组内：轴 / 文字框 / 按钮行 / 生成列表；白卡内边距
+     *   s3 12px  块间：白卡与相邻块、圆点行高、卡片内边距、卡片外边距、侧栏左右留白
+     *   s4 16px  预留：需要更强层级分隔时用
+     * 三条派生规则
+     *   1. 每往里一层，内边距降一档：卡片 s3 → 白卡 s2。
+     *      窗口（侧栏 / 面板）本身是最外层那张卡片：内边距 s3、块间 s3，
+     *      左右留白只由窗口给一次，内部各块不写左右外边距
+     *   2. 主轴（片段概览波形）不留标签列，波形起于 --lead 28px，两个圆点行跟着它对位；
+     *      次级轴（起 / 止 / 插入点）统一 --labw 38px 标签列，波形起于 74px，同级互相对齐
+     *   3. 波形和它上下两个圆点行是一个整体：圆点行永远紧贴波形（0）。
+     *      白卡是另一个块 —— 不论展开与否，它与这个整体之间恒留 s3。
+     *      展开时由尾巴跨过这 s3 把两者连成一个气泡，所以卡片不与未激活的圆点挤在一起。
+     */
+    --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px;
+    --lead: 28px;
+    --labw: 38px;
     --page: #E9E9EC;
+    /* 子级卡片比窗口更亮一档：靠材质差分层，不用阴影也不用描边。
+       窗口 233 → 灰卡（sunken）222 → 白卡 242，一级一层 */
+    --rise: #F2F2F4;
   }
   @supports (color: AccentColor){ :root{ --accent:AccentColor; --onAccent:AccentColorText } }
   @media (prefers-color-scheme: dark){
@@ -34,6 +56,7 @@
       --hair: rgba(255,255,255,.11); --bad:#ff453a;
       --bread: rgba(255,255,255,.4); --muted: rgba(255,255,255,.28);
       --page:#232326;
+      --rise:#3A3A40;
     }
   }
 
@@ -46,31 +69,35 @@
     display:flex;justify-content:center;align-items:flex-start;
   }
 
-  /* 侧栏这一长条 */
+  /* 侧栏这一长条 = 最外层那张卡片：内边距 s3、块间 s3，块自己不再写外边距 */
   .panel{
     width:344px;max-height:100vh;overflow-y:auto;overflow-x:hidden;
+    padding:var(--s3) var(--s3) 0;        /* 底边不留：底栏自己带 s3 */
     background:var(--page);
-    display:flex;flex-direction:column;
+    display:flex;flex-direction:column;gap:var(--s3);
   }
-  .pad{padding:11px 13px 0}
+  /* 内容区：块间间距一律由容器的 gap 给，子块 margin 全为 0 */
+  .pad,.cards{display:flex;flex-direction:column;gap:var(--s3)}
   .foot{
-    position:sticky;bottom:0;margin-top:14px;padding:10px 13px 12px;
+    position:sticky;bottom:0;
+    margin:0 calc(-1 * var(--s3));         /* 通栏：抵消窗口内边距，滚动内容不会从两侧露出 */
+    padding:var(--s3);
     background:var(--page);border-top:1px solid var(--hair);
-    display:flex;gap:8px;align-items:center;
+    display:flex;gap:var(--s2);align-items:center;
   }
   .foot .spacer{flex:1}
 
   /* 顶部元信息 */
-  .top{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--label2)}
+  .top{display:flex;align-items:center;gap:var(--s2);font-size:11px;color:var(--label2)}
   .top .title{color:var(--label);font-weight:500}
   .top .file{max-width:118px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .top .tc{margin-left:auto;display:flex;align-items:center;gap:5px;flex:none;font-variant-numeric:tabular-nums}
+  .top .tc{margin-left:auto;display:flex;align-items:center;gap:var(--s1);flex:none;font-variant-numeric:tabular-nums}
   .dot{width:6px;height:6px;border-radius:50%;background:var(--label3);flex:none}
   .dot.on{background:var(--accent)}
 
   /* 播放头（真机里是 IINA 的播放头） */
-  .plhead{margin-top:10px}
-  .plrow{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--label2)}
+  /* .plhead 与 .top 的间距由 .pad 的 gap 给 */
+  .plrow{display:flex;align-items:center;gap:var(--s2);font-size:11px;color:var(--label2)}
   .track{position:relative;flex:1;height:14px;display:flex;align-items:center;cursor:pointer}
   .track::before{content:"";position:absolute;left:0;right:0;height:3px;border-radius:2px;background:var(--chip)}
   .trackfill{position:absolute;left:0;height:3px;border-radius:2px;background:var(--label3);pointer-events:none}
@@ -79,20 +106,21 @@
 
   /* 卡片（第一层：取样片段） */
   .card{
-    margin:14px 13px 0;padding:11px 11px 12px;border-radius:var(--r);
+    margin:0;padding:var(--s3);border-radius:var(--r);
     background:var(--sunken);
   }
-  .cardhd{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:500;color:var(--label)}
+  .cardhd{display:flex;align-items:center;gap:var(--s2);margin-bottom:var(--s3);
+    font-size:12px;font-weight:500;color:var(--label)}
   .cardhd .idx{color:var(--label)}
-  .cardhd .del{margin-left:auto}
+  .cardhd .del{margin-left:0}          /* 空闲空间全给 meta，✕ 紧随其后 */
   .del{border:0;background:transparent;color:var(--label3);cursor:pointer;font:inherit;font-size:12px;
-    padding:2px 4px;border-radius:var(--rxs);line-height:1}
+    padding:var(--s1);border-radius:var(--rxs);line-height:1}
   .del:hover{color:var(--bad);background:var(--chip)}
 
-  .axis{display:flex;align-items:center;gap:7px;margin-top:8px}
+  .axis{display:flex;align-items:center;gap:var(--s2);margin-top:var(--s2)}
+  .card > .axis{margin-top:0}          /* 概览波形是主轴，不留标签列 */
   .al{font-size:10.5px;color:var(--label3);width:16px;flex:none;text-align:center}
-  .lab{font-size:10.5px;color:var(--label3);width:24px;flex:none}
-  .lab.wide{width:38px}
+  .lab{font-size:10.5px;color:var(--label3);width:var(--labw);flex:none}
   .play{width:20px;height:20px;border-radius:50%;border:0;background:var(--chip);cursor:pointer;flex:none;
     display:grid;place-items:center;padding:0;color:var(--label2)}
   .play:hover{background:var(--chipHi);color:var(--label)}
@@ -101,35 +129,59 @@
     touch-action:none}
   canvas.cv.over{height:38px;cursor:pointer;background:transparent}   /* 预览波形只有中心线 */
   .hidden{display:none !important}
-  .dotsrow{display:flex;align-items:center;justify-content:space-between;margin:0 0 0 27px;
-    height:15px}
-  .dotbtn{width:15px;height:15px;border:0;background:transparent;cursor:pointer;padding:0;
-    display:grid;place-items:center;border-radius:50%;flex:none}
-  .dotbtn i{width:7px;height:7px;border-radius:50%;background:var(--label3);display:block}
+  /* 展开 / 折叠：0fr → 1fr 的网格行高过渡，内容整块被裁掉而不是硬删 */
+  .collapse{display:grid;grid-template-rows:0fr;opacity:0;
+    transition:grid-template-rows .19s cubic-bezier(.32,.72,0,1),opacity .15s ease}
+  .collapse > div{overflow:hidden;min-height:0}   /* 裁切层本身不能带内外边距 */
+  .collapse.vis > div{overflow:visible}           /* 展开稳定后放开裁切：阴影画得出去，换卡滑动不被切 */
+  .collapse[data-open="1"]{grid-template-rows:1fr;opacity:1}
+  .collapse.noanim{transition:none}
+  /* 圆点行：永远紧贴波形。展开时圆点变成三角，与卡片连成一个漫画对话框气泡 */
+  .dotsrow,.idots{position:relative;height:var(--s3);margin:0 0 0 var(--lead)}
+  .dotbtn{position:absolute;top:0;left:0;width:25px;height:var(--s3);
+    border:0;background:transparent;cursor:pointer;padding:0}
+  .dotbtn i{position:absolute;left:var(--tip,36%);top:2.5px;width:7px;height:7px;
+    border-radius:50%;background:var(--label3);display:block;transform:translateX(-50%);
+    transition:opacity .19s ease,transform .19s ease}
   .dotbtn:hover i{background:var(--label)}
-  .dotbtn[data-on="1"] i{background:var(--accent)}
-  .idots{position:relative;height:15px;margin:1px 0 0 27px}
-  .idots .idot{position:absolute;top:0;transform:translateX(-50%)}
+  .dotbtn[data-on="1"] i{opacity:0;transform:translateX(-50%) scale(.4)}
+  /* 气泡尾巴：整条底边贴着卡片，尖端落在波形上那个点；颜色 = 卡片底色，所以像卡自己长出来的 */
+  /* 尾巴高 22px：跨过白卡与圆点行之间的 s3，尖端仍停在离波形 3px 处，底边压进卡片 1px */
+  .dotbtn b{position:absolute;left:0;width:25px;height:22px;background:var(--rise);
+    opacity:0;pointer-events:none;transition:opacity .19s ease,transform .19s ease}
+  .dotsrow .dotbtn b{top:-13px;transform-origin:36% 0;transform:scale(.72);
+    clip-path:polygon(0 0,72% 0,var(--tip,36%) 100%)}
+  .idots .dotbtn b{bottom:-13px;transform-origin:36% 100%;transform:scale(.72);
+    clip-path:polygon(var(--tip,36%) 0,72% 100%,0 100%)}
+  .dotbtn[data-on="1"] b{opacity:1;transform:scale(1)}
   canvas.cv.edge{cursor:ew-resize}
-  .meta{margin-top:3px;display:flex;justify-content:space-between;font-size:10.5px;color:var(--label3);
+  .meta{margin-left:auto;display:flex;gap:var(--s2);font-size:10.5px;color:var(--label3);
     font-variant-numeric:tabular-nums}
 
   /* 第二层：插入点 */
-  .ins{margin-top:12px;padding:9px 9px 10px;border-radius:var(--rsm);background:var(--page)}
-  .inshd{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--label2)}
+  .ins,.edgecard{margin:0;padding:var(--s2);border-radius:var(--rsm);background:var(--rise);
+    transition:transform .19s ease,opacity .19s ease}
+  /* 白卡是独立的一块，与「波形 / 圆点行」这个整体之间恒留 s3（折叠时整块收起，不留空） */
+  .edgecard{margin:0 0 var(--s3)}
+  .ins{margin:var(--s3) 0 0}
+  /* 换卡：新圆点在旧圆点哪一边，新卡就从哪一边进来，旧卡往反方向退 */
+  .ins.swap-in,.edgecard.swap-in{transition:none;transform:translateX(var(--sx,0));opacity:0}
+  .ins.swap-out,.edgecard.swap-out{transform:translateX(var(--sx,0));opacity:0;
+    transition:transform .13s ease,opacity .13s ease}
+  .inshd{display:flex;align-items:center;gap:var(--s2);font-size:11.5px;color:var(--label2)}
   .inshd .idx{color:var(--label);font-weight:500}
   .inshd .del{margin-left:auto}
   textarea{
-    width:100%;margin-top:8px;border:0;background:var(--sunken);border-radius:var(--rxs);
-    padding:7px 8px;font:inherit;font-size:12.5px;line-height:1.5;color:var(--label);
+    width:100%;display:block;margin-top:var(--s2);border:0;background:var(--sunken);border-radius:var(--rxs);
+    padding:var(--s2);font:inherit;font-size:12.5px;line-height:1.5;color:var(--label);
     resize:none;outline:none;min-height:44px;-webkit-user-select:text
   }
   textarea::placeholder{color:var(--label3)}
-  .insacts{display:flex;align-items:center;gap:8px;margin-top:7px}
+  .insacts{display:flex;align-items:center;gap:var(--s2);margin-top:var(--s2)}
   .insacts .spacer{flex:1}
 
   .btn{font:inherit;font-size:12.5px;border:0;background:var(--chip);color:var(--label);
-    padding:4px 10px;border-radius:var(--rxs);cursor:pointer}
+    padding:var(--s1) var(--s3);border-radius:var(--rxs);cursor:pointer}
   .btn:hover{background:var(--chipHi)}
   .btn[disabled]{opacity:.4;cursor:default}
   .btn.primary{font-weight:600;background:var(--chipHi)}
@@ -137,13 +189,13 @@
   .btn.accent{background:var(--accent);color:var(--onAccent);font-weight:500}
   .btn.accent:hover{filter:brightness(1.06)}
 
-  .bar{margin-top:8px;height:2px;border-radius:1px;background:var(--chip);overflow:hidden}
+  .bar{margin-top:var(--s2);height:2px;border-radius:1px;background:var(--chip);overflow:hidden}
   .bar i{display:block;height:100%;width:0;background:var(--accent)}
-  .barline{margin-top:5px;font-size:10.5px;color:var(--label2);font-variant-numeric:tabular-nums}
+  .barline{margin-top:var(--s1);font-size:10.5px;color:var(--label2);font-variant-numeric:tabular-nums}
 
   /* 第三层：生成次数 */
-  .takes{margin-top:8px}
-  .take{display:flex;align-items:center;gap:6px;padding:2px 0}
+  .takes{margin-top:var(--s2)}
+  .take{display:flex;align-items:center;gap:var(--s2);padding:var(--s1) 0}
   .take .k{font-size:11px;color:var(--label3);width:44px;flex:none;font-variant-numeric:tabular-nums;
     white-space:nowrap}
   .take .play{width:18px;height:18px}
@@ -155,14 +207,15 @@
     font-variant-numeric:tabular-nums}
   .take .pick,.take .drop{flex:none}
   .pick,.drop{border:0;background:transparent;color:var(--label3);cursor:pointer;font:inherit;font-size:11.5px;
-    padding:2px 5px;border-radius:var(--rxs)}
+    padding:var(--s1) var(--s2);border-radius:var(--rxs)}
   .pick:hover{color:var(--accent);background:var(--chip)}
   .drop:hover{color:var(--bad);background:var(--chip)}
   .take[data-sel="1"] .k{color:var(--accent);font-weight:600}
   .take[data-sel="1"] .pick{color:var(--accent)}
 
-  .addrow{margin:12px 13px 0;display:flex}
-  .add{width:100%;justify-content:center;padding:8px}
+  .addrow{display:flex}
+  .add{width:100%;justify-content:center;padding:var(--s2)}
+  .cardadd{margin-top:var(--s3);width:100%;display:block}
 </style>
 </head>
 <body>
@@ -182,7 +235,7 @@
         </div>
       </div>
     </div>
-    <div id="cards"></div>
+    <div class="cards" id="cards"></div>
     <div class="addrow">
       <button class="btn primary add" id="addSample">基于播放进度新增</button>
     </div>
@@ -385,8 +438,25 @@
 
   function minBT(s){ return s.inserts.length ? Math.min.apply(null, s.inserts.map(i => i.t)) : s.prev; }
   function maxBT(s){ return s.inserts.length ? Math.max.apply(null, s.inserts.map(i => i.t)) : s.prev; }
-  function legalA(s){ return [Math.max(0.05, s.C - MAXLEN), Math.min(s.C - MINLEN, minBT(s) - 0.4)]; }
-  function legalC(s){ return [Math.max(s.A + MINLEN, maxBT(s) + 0.4), Math.min(FILM - 0.05, s.A + MAXLEN)]; }
+  /* 窗长仍是 8~15s（上限 15s 是 IndexTTS2 的硬限制：音色参考只吃前 15s）。
+     但长度不该把端点钉死 —— 往外拖过头时另一端被顶着一起走，等于整窗平移：
+     起点能一路推到片头，止点能一路推到片尾。真正挡住端点的只剩插入点 B。 */
+  function legalA(s){ return [Math.max(0.05, maxBT(s) + 0.4 - MAXLEN), Math.min(s.C - MINLEN, minBT(s) - 0.4)]; }
+  function legalC(s){ return [Math.max(s.A + MINLEN, maxBT(s) + 0.4), FILM - 0.05]; }
+
+  /* moved 这一端刚写入，把另一端收敛回 8~15s；若被 B 挡住放不下，就回退自己 */
+  function clampWin(s, moved){
+    if (moved === 'A'){
+      if (s.C - s.A > MAXLEN) s.C = s.A + MAXLEN;
+      s.C = Math.max(s.C, Math.max(s.A + MINLEN, maxBT(s) + 0.4));
+      if (s.C - s.A > MAXLEN) s.A = Math.max(0.05, s.C - MAXLEN);
+    } else {
+      if (s.C - s.A > MAXLEN) s.A = s.C - MAXLEN;
+      s.A = Math.min(s.A, s.C - MINLEN);
+    }
+    s.A = Math.max(0.05, s.A);
+    s.C = Math.min(FILM - 0.05, s.C);
+  }
   function legalB(s, ins){
     let lo = s.A + 0.4, hi = s.C - 0.4;
     for (const o of s.inserts){
@@ -498,26 +568,21 @@
     ctx.globalAlpha = 1;
     drawWave(ctx, W, H, vs, ve);
 
-    // 每个 B 的标记点
+    // 每个 B：就是一条竖线（选中实、未选淡），上下不挂任何三角
     for (const ins of s.inserts){
       const x = xOf(ins.t);
       const sel = ins.sel != null || (s.open && s.open.k === 'ins' && s.open.id === ins.id);
+      const w = sel ? 1.6 : 1.2;
       ctx.fillStyle = cssVar('--accent');
       ctx.globalAlpha = sel ? 1 : 0.45;
-      ctx.fillRect(Math.round(x) - 0.5, 4, sel ? 1.6 : 1, H - 8);
-      ctx.beginPath();
-      ctx.moveTo(x - 4, 0); ctx.lineTo(x + 4, 0); ctx.lineTo(x, 5);
-      ctx.closePath(); ctx.fill();
+      ctx.fillRect(x - w / 2, 0, w, H);
       ctx.globalAlpha = 1;
     }
 
-    // 卡片内的预览播放头
+    // 卡片内的预览播放头：同样只是一条线
     const xp = xOf(s.prev);
     ctx.fillStyle = cssVar('--label');
-    ctx.fillRect(Math.round(xp), 0, 1, H);
-    ctx.beginPath();
-    ctx.moveTo(xp - 3.5, H); ctx.lineTo(xp + 3.5, H); ctx.lineTo(xp, H - 4);
-    ctx.closePath(); ctx.fill();
+    ctx.fillRect(Math.round(xp) - 0.5, 0, 1, H);
 
     if (prog && prog.owner.kind === 'over' && prog.owner.sid === s.id){
       ctx.fillStyle = cssVar('--accent');
@@ -531,12 +596,7 @@
     const t0 = (which === 'A') ? s.A : s.C;
     const vs = t0 - 2.8, ve = t0 + 2.8;
     const xOf = (t) => (t - vs) / (ve - vs) * W;
-    if (drag && drag.kind === which && drag.sid === s.id){
-      const b = which === 'A' ? legalA(s) : legalC(s);
-      const x1 = xOf(b[0]), x2 = xOf(b[1]);
-      ctx.fillStyle = cssVar('--accent'); ctx.globalAlpha = 0.1;
-      ctx.fillRect(x1, 0, Math.max(0, x2 - x1), H); ctx.globalAlpha = 1;
-    }
+    // 可动范围现在基本等于整条时间轴，铺一层淡蓝没有信息量，不画
     drawWave(ctx, W, H, vs, ve);
     // 窗内其它 B 的位置
     for (const ins of s.inserts){
@@ -548,7 +608,7 @@
     }
     const x = xOf(t0);
     ctx.fillStyle = cssVar('--label');
-    ctx.fillRect(Math.round(x) - 0.5, 1, 1, H - 2);
+    ctx.fillRect(Math.round(x) - 0.5, 0, 1, H);
     if (prog && prog.owner.kind === which && prog.owner.sid === s.id){
       ctx.fillStyle = cssVar('--accent');
       ctx.fillRect(Math.round(prog.k * W), 0, 1.2, H);
@@ -569,10 +629,7 @@
     drawWave(ctx, W, H, vs, ve);
     const x = xOf(ins.t);
     ctx.fillStyle = cssVar('--accent');
-    ctx.fillRect(Math.round(x) - 0.7, 1, 1.6, H - 2);
-    ctx.beginPath();
-    ctx.moveTo(x - 4, 0); ctx.lineTo(x + 4, 0); ctx.lineTo(x, 5);
-    ctx.closePath(); ctx.fill();
+    ctx.fillRect(x - 0.8, 0, 1.6, H);
     if (prog && prog.owner.kind === 'B' && prog.owner.sid === s.id && prog.owner.bid === ins.id){
       ctx.fillStyle = cssVar('--accent');
       ctx.fillRect(Math.round(prog.k * W), 0, 1.2, H);
@@ -668,6 +725,10 @@
   function render(){
     cardsHost.innerHTML = '';
     samples.forEach((s, i) => cardsHost.appendChild(cardEl(s, i)));
+    samples.forEach((s) => {                       // 入 DOM 后波形才有宽度，此时再定尾巴
+      const el = document.querySelector('.card[data-sid="' + s.id + '"]');
+      if (el) paintDots(el, s);
+    });
     updateFoot();
     drawAll();
   }
@@ -678,17 +739,17 @@
     el.dataset.sid = s.id;
     el.innerHTML =
       '<div class="cardhd"><span class="idx">取样片段 ' + cnNum(i + 1) + '</span>' +
+      '<div class="meta"><span class="span"></span><span class="prev"></span></div>' +
       '<button class="del" data-act="delCard" title="删除此片段">✕</button></div>' +
+      '<div class="collapse" data-row="topaxis"></div>' +
       '<div class="dotsrow" data-row="top">' +
-        '<button class="dotbtn" data-act="dotA" title="调整起点"><i></i></button>' +
-        '<button class="dotbtn" data-act="dotC" title="调整止点"><i></i></button>' +
+        '<button class="dotbtn tl" data-act="dotA" title="调整起点"><i></i><b></b></button>' +
+        '<button class="dotbtn tr" data-act="dotC" title="调整止点"><i></i><b></b></button>' +
       '</div>' +
-      '<div data-row="topaxis"></div>' +
       '<div class="axis"><button class="play" data-act="playOver" title="试听整段">' + SVG_PLAY + '</button>' +
       '<canvas class="cv over" data-kind="over" data-sid="' + s.id + '"></canvas></div>' +
-      '<div class="meta"><span class="span"></span><span class="prev"></span></div>' +
       '<div class="idots" data-row="idots"></div>' +
-      '<div data-row="insHost"></div>';
+      '<div class="collapse" data-row="insHost"></div>';
 
     el.addEventListener('click', (e) => {
       const b = e.target.closest('[data-act]');
@@ -712,9 +773,7 @@
     bindCanvas(el.querySelector('canvas.over'), 'over', s, null);
 
     const add = document.createElement('button');
-    add.className = 'btn';
-    add.style.marginTop = '6px';
-    add.style.width = '100%';
+    add.className = 'btn cardadd';
     add.dataset.act = 'addIns';
     add.textContent = '新增插入点 · ' + fmt(s.prev);
     el.appendChild(add);
@@ -724,7 +783,7 @@
     return el;
   }
 
-  /* 展开态：一次只有一个轴；调起止时插入收成圆点，调插入时上面两个圆点隐藏 */
+  /* 展开态：一次只展开一个轴；圆点是入口，始终可见，不受对方展开影响 */
   function toggle(s, next){
     const cur = s.open;
     const same = cur && cur.k === next.k && (next.id == null || cur.id === next.id);
@@ -744,7 +803,6 @@
   function applyOpen(el, s){
     const openIns = !!(s.open && s.open.k === 'ins');
     const top = el.querySelector('[data-row="top"]');
-    top.classList.toggle('hidden', openIns);
     top.querySelector('[data-act="dotA"]').dataset.on = (s.open && s.open.k === 'A') ? '1' : '0';
     top.querySelector('[data-act="dotC"]').dataset.on = (s.open && s.open.k === 'C') ? '1' : '0';
 
@@ -752,31 +810,136 @@
     const which = (s.open && (s.open.k === 'A' || s.open.k === 'C')) ? s.open.k : null;
     if (which){
       if (ax.dataset.k !== which){
+        const prevK = ax.dataset.k;
         ax.dataset.k = which;
-        ax.innerHTML =
-          '<div class="axis"><span class="lab">' + (which === 'A' ? '起' : '止') + '</span>' +
-          '<button class="play" data-act="play' + which + '" title="试听">' + SVG_PLAY + '</button>' +
-          '<canvas class="cv edge" data-kind="' + which + '" data-sid="' + s.id + '"></canvas></div>';
-        bindCanvas(ax.querySelector('canvas'), which, s, null);
+        const html =
+          '<div><div class="edgecard" data-k="' + which + '">' +
+            '<div class="inshd"><span class="idx">' + (which === 'A' ? '起点' : '止点') + '</span>' +
+            '<span class="tc"></span></div>' +
+            '<div class="axis"><span class="lab">' + (which === 'A' ? '起' : '止') + '</span>' +
+            '<button class="play" data-act="play' + which + '" title="试听">' + SVG_PLAY + '</button>' +
+            '<canvas class="cv edge" data-kind="' + which + '" data-sid="' + s.id + '"></canvas></div>' +
+          '</div></div>';
+        const d = prevK ? swapDir(s, prevK, which) : null;
+        const build = () => {
+          if (ax.dataset.k !== which) return;        // 期间又切走了，作废
+          ax.innerHTML = html;
+          const card = ax.querySelector('.edgecard');
+          if (card && d) slideIn(card, d.in);
+          bindCanvas(ax.querySelector('canvas'), which, s, null);
+          paintDots(el, s);
+          updateCardMeta(el, s);
+        };
+        const old = prevK ? ax.querySelector('.edgecard') : null;
+        if (old) slideOut(old, d.out, build); else build();
       }
-      ax.classList.remove('hidden');
+      setCollapse(ax, true);
     } else {
-      ax.dataset.k = ''; ax.innerHTML = ''; ax.classList.add('hidden');
+      setCollapse(ax, false);        // 内容留着，让它自己收起来
     }
 
     paintDots(el, s);
 
     const host = el.querySelector('[data-row="insHost"]');
-    host.innerHTML = '';
     if (openIns){
       const j = s.inserts.findIndex(x => x.id === s.open.id);
-      if (j >= 0) host.appendChild(insEl(s, s.inserts[j], j));
+      if (j >= 0){
+        const ins = s.inserts[j], want = String(ins.id);
+        const d = host.dataset.ins ? swapDir(s, host.dataset.ins, want) : null;
+        const build = () => {
+          if (!(s.open && s.open.k === 'ins' && String(s.open.id) === want)) return;
+          host.innerHTML = '';
+          const wrap = document.createElement('div');
+          wrap.appendChild(insEl(s, ins, j));
+          host.appendChild(wrap);
+          const card = host.querySelector('.ins');
+          if (card && d) slideIn(card, d.in);
+          host.dataset.ins = want;
+          paintDots(el, s);
+        };
+        const old = (host.dataset.ins && host.dataset.ins !== want) ? host.querySelector('.ins') : null;
+        if (old) slideOut(old, d.out, build); else build();
+      }
+      setCollapse(host, true);
+    } else {
+      setCollapse(host, false);
     }
+    updateCardMeta(el, s);   // 白卡刚建出来时把时间填上
+  }
+
+  /* 换卡动效：方向只看两个圆点的相对位置 —— 新圆点在旧圆点右边，旧卡向左退、新卡从右进。
+     只有「已有一张、换成另一张」才走这套；从折叠到展开靠高度动画，不叠水平位移。
+     （按绝对左右半边算是错的：两个插入点同在左半边时，切换就分不出方向。） */
+  function dotX(s, k){
+    if (k === 'A') return 0;
+    if (k === 'C') return 1;
+    const ins = s.inserts.find(x => String(x.id) === String(k));
+    return ins ? (ins.t - s.A) / Math.max(0.001, s.C - s.A) : 0.5;
+  }
+  function swapDir(s, oldK, newK){
+    const right = dotX(s, newK) > dotX(s, oldK);
+    return { in: right ? 'r' : 'l', out: right ? 'l' : 'r' };
+  }
+  function slideOut(card, dir, done){
+    const col = card.closest('.collapse');
+    if (col) unclip(col, 0);           // 滑动也画在裁切层外，圆角不能被边界切一刀
+    card.style.setProperty('--sx', dir === 'l' ? '-12px' : '12px');
+    card.classList.add('swap-out');
+    setTimeout(done, 130);
+  }
+  function slideIn(card, dir){
+    card.style.setProperty('--sx', dir === 'l' ? '-12px' : '12px');
+    card.classList.add('swap-in');
+    void card.offsetHeight;              // 让初值当场生效，再移除让它滑回来
+    card.classList.remove('swap-in');
+  }
+
+  /* 裁切层的 overflow：展开动画期间必须裁（内容会从 0 长出来），稳定后放开，
+     白卡的阴影和换卡滑动才画得出去；收起时立刻收回。 */
+  function unclip(el, ms){
+    clearTimeout(el._uc);
+    const go = () => { if (el.dataset.open === '1') el.classList.add('vis'); };
+    if (ms) el._uc = setTimeout(go, ms); else go();
+  }
+  function clip(el){
+    clearTimeout(el._uc);
+    el.classList.remove('vis');
+  }
+
+  /* 整卡重建（render）时不动画，只有真正的展开/折叠才动 */
+  function setCollapse(el, open){
+    const fresh = el.dataset.init !== '1';
+    el.dataset.init = '1';
+    if (fresh) el.classList.add('noanim');
+    el.dataset.open = open ? '1' : '0';
+    if (fresh){
+      void el.offsetHeight;        // 强制回流，让 0fr/1fr 的初值当场生效
+      el.classList.remove('noanim');
+    }
+    if (open) unclip(el, fresh ? 0 : 220);   // 高度动画走完再放开
+    else clip(el);
+  }
+
+  /* 气泡尾巴：底边 18px 贴着卡片，容器 25px（多出的一个圆角 7px 给尖端伸出去）。
+     底边整条必须落在白卡的「直边段」里（白卡左右各有 --rsm 7px 的圆角，底边压上去
+     圆角处就会露出灰底的空白），所以夹取只约束底边；尖端不受约束，永远精确落在该点。
+     于是起点/止点即使贴在波形两端，也是正常斜三角，不再是贴着边的直角形状。 */
+  const LEAD = 28, TAIL = 18, CORNER = 7, TAILBOX = TAIL + CORNER;
+  function setTip(btn, k, W){
+    if (!btn) return;
+    const x = k * W;
+    const lo = -(LEAD - CORNER);          // 白卡向左伸到 -28，圆角吃掉 7
+    const hi = W - TAILBOX;               // 右边没富余，底边右端必须让开圆角
+    const L = Math.max(lo, Math.min(hi, x - TAIL / 2));
+    btn.style.left = L + 'px';
+    btn.style.setProperty('--tip', ((x - L) / TAILBOX * 100).toFixed(2) + '%');
   }
 
   function paintDots(el, s){
     const host = el.querySelector('[data-row="idots"]');
     if (!host) return;
+    const cv = el.querySelector('canvas.over');
+    const W = cv ? cv.clientWidth : 0;
     host.innerHTML = '';
     const openId = (s.open && s.open.k === 'ins') ? s.open.id : null;
     s.inserts.forEach((ins, j) => {
@@ -785,15 +948,22 @@
       b.dataset.id = ins.id;
       b.dataset.on = ins.id === openId ? '1' : '0';
       b.title = '插入 ' + letter(j + 1) + ' · ' + fmt(ins.t);
-      b.style.left = Math.max(0, Math.min(100, (ins.t - s.A) / (s.C - s.A) * 100)) + '%';
-      b.innerHTML = '<i></i>';
+      b.innerHTML = '<i></i><b></b>';
       host.appendChild(b);
+      setTip(b, Math.max(0, Math.min(1, (ins.t - s.A) / (s.C - s.A))), W);
     });
+    setTip(el.querySelector('[data-act="dotA"]'), 0, W);
+    setTip(el.querySelector('[data-act="dotC"]'), 1, W);
   }
 
   function updateCardMeta(el, s){
     el.querySelector('.span').textContent = (s.C - s.A).toFixed(1) + 's';
     el.querySelector('.prev').textContent = '播放头 ' + fmt(s.prev);
+    const ec = el.querySelector('.edgecard');
+    if (ec){
+      const tc = ec.querySelector('.tc');
+      if (tc) tc.textContent = fmt(ec.dataset.k === 'A' ? s.A : s.C);
+    }
   }
 
   function insEl(s, ins, j){
@@ -945,6 +1115,7 @@
         if (hd){ const tc = hd.querySelector('.tc'); if (tc) tc.textContent = fmt(ins.t); }
       } else {
         s[kind] = nt;
+        clampWin(s, kind);                 // 拖过头就把另一端顶着走，等于整窗平移
         // 边界推进时，允许把 B 顶开（保证 A < B < C）
         for (const o of s.inserts){
           o.t = Math.max(s.A + 0.4, Math.min(s.C - 0.4, o.t));
@@ -1026,7 +1197,13 @@
   });
 
   /* ================= 启动 ================= */
-  window.addEventListener('resize', drawAll);
+  window.addEventListener('resize', () => {          // 宽度变了，尾巴位置要重算
+    samples.forEach((s) => {
+      const el = document.querySelector('.card[data-sid="' + s.id + '"]');
+      if (el) paintDots(el, s);
+    });
+    drawAll();
+  });
   setPlayhead(42.6);
   samples.push(newSample(P.t));
   render();
