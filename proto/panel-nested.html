@@ -118,7 +118,7 @@
   .del:hover{color:var(--bad);background:var(--chip)}
 
   .axis{display:flex;align-items:center;gap:var(--s2);margin-top:var(--s2)}
-  .card > .axis{margin-top:0}          /* 概览波形是主轴，不留标签列 */
+  .hoverzone > .axis{margin-top:0}      /* 概览波形是主轴，不留标签列 */
   .al{font-size:10.5px;color:var(--label3);width:16px;flex:none;text-align:center}
   .lab{font-size:10.5px;color:var(--label3);width:var(--labw);flex:none}
   .play{width:20px;height:20px;border-radius:50%;border:0;background:var(--chip);cursor:pointer;flex:none;
@@ -127,7 +127,7 @@
   .play svg{width:8px;height:8px;fill:currentColor}
   canvas.cv{display:block;flex:1;min-width:0;height:30px;border-radius:var(--rsm);background:var(--chip);
     touch-action:none}
-  canvas.cv.over{height:38px;cursor:pointer;background:transparent}   /* 预览波形只有中心线 */
+  canvas.cv.over{height:38px;cursor:crosshair;background:transparent}   /* 预览波形只有中心线 */
   .hidden{display:none !important}
   /* 展开 / 折叠：0fr → 1fr 的网格行高过渡，内容整块被裁掉而不是硬删 */
   .collapse{display:grid;grid-template-rows:0fr;opacity:0;
@@ -215,7 +215,14 @@
 
   .addrow{display:flex}
   .add{width:100%;justify-content:center;padding:var(--s2)}
-  .cardadd{margin-top:var(--s3);width:100%;display:block}
+  /* 轴下方的小气泡加号：跟着 hover 的灰线走，点它就在这里插一张新卡 */
+  .plus{position:absolute;top:0;width:16px;height:16px;border-radius:50%;
+    border:0;padding:0;background:var(--rise);color:var(--label2);cursor:pointer;
+    display:grid;place-items:center;opacity:0;pointer-events:none;transform:scale(.8);
+    transition:opacity .12s ease,transform .12s ease,color .12s ease}
+  .plus[data-on="1"]{opacity:1;pointer-events:auto;transform:scale(1)}
+  .plus:hover{color:var(--label)}
+  .plus svg{width:10px;height:10px}
 </style>
 </head>
 <body>
@@ -568,6 +575,13 @@
     ctx.globalAlpha = 1;
     drawWave(ctx, W, H, vs, ve);
 
+    // hover 跟随的灰线：跟着鼠标实时走，不落状态（点击不再落播放头）
+    if (hover && hover.sid === s.id){
+      const xh = Math.round(xOf(hover.t)) - 0.5;
+      ctx.fillStyle = cssVar('--label2');
+      ctx.fillRect(xh, 0, 1, H);
+    }
+
     // 每个 B：就是一条竖线（选中实、未选淡），上下不挂任何三角
     for (const ins of s.inserts){
       const x = xOf(ins.t);
@@ -673,6 +687,8 @@
   }
 
   let drag = null;
+  /* 鼠标在片段轴上 hover 的位置：只是一条灰线 + 轴下方的小气泡加号，不落任何状态 */
+  let hover = null;
   function drawOne(owner){
     const s = samples.find(x => x.id === owner.sid);
     if (!s) return;
@@ -721,6 +737,8 @@
   /* ================= 渲染 ================= */
   const cardsHost = document.getElementById('cards');
   const SVG_PLAY = '<svg viewBox="0 0 10 12"><path d="M0 0l10 6-10 6z"/></svg>';
+  const SVG_PLUS = '<svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6"' +
+    ' stroke-linecap="round"><path d="M5 1.4v7.2M1.4 5h7.2"/></svg>';
 
   function render(){
     cardsHost.innerHTML = '';
@@ -746,9 +764,13 @@
         '<button class="dotbtn tl" data-act="dotA" title="调整起点"><i></i><b></b></button>' +
         '<button class="dotbtn tr" data-act="dotC" title="调整止点"><i></i><b></b></button>' +
       '</div>' +
-      '<div class="axis"><button class="play" data-act="playOver" title="试听整段">' + SVG_PLAY + '</button>' +
-      '<canvas class="cv over" data-kind="over" data-sid="' + s.id + '"></canvas></div>' +
-      '<div class="idots" data-row="idots"></div>' +
+      '<div class="hoverzone">' +
+        '<div class="axis"><button class="play" data-act="playOver" title="试听整段">' + SVG_PLAY + '</button>' +
+        '<canvas class="cv over" data-kind="over" data-sid="' + s.id + '"></canvas></div>' +
+        '<div class="idots" data-row="idots">' +
+          '<button class="plus" data-act="addAt" title="在这里新增插入点">' + SVG_PLUS + '</button>' +
+        '</div>' +
+      '</div>' +
       '<div class="collapse" data-row="insHost"></div>';
 
     el.addEventListener('click', (e) => {
@@ -761,7 +783,7 @@
       else if (act === 'playC') playSm(edgeSm(s.C, true), { kind: 'C', sid: s.id });
       else if (act === 'dotA') toggle(s, { k: 'A' });
       else if (act === 'dotC') toggle(s, { k: 'C' });
-      else if (act === 'addIns') addIns(s);
+      else if (act === 'addAt') addIns(s, hover && hover.sid === s.id ? hover.t : null);
     });
 
     el.querySelector('[data-row="idots"]').addEventListener('click', (e) => {
@@ -771,12 +793,6 @@
     });
 
     bindCanvas(el.querySelector('canvas.over'), 'over', s, null);
-
-    const add = document.createElement('button');
-    add.className = 'btn cardadd';
-    add.dataset.act = 'addIns';
-    add.textContent = '新增插入点 · ' + fmt(s.prev);
-    el.appendChild(add);
 
     applyOpen(el, s);
     updateCardMeta(el, s);
@@ -792,8 +808,8 @@
     if (el){ applyOpen(el, s); drawAll(); }
   }
 
-  function addIns(s){
-    const t = Math.max(s.A + 0.4, Math.min(s.C - 0.4, s.prev));
+  function addIns(s, at){
+    const t = Math.max(s.A + 0.4, Math.min(s.C - 0.4, at == null ? s.prev : at));
     const ins = newInsert(t);
     s.inserts.push(ins);
     s.open = { k: 'ins', id: ins.id };
@@ -940,7 +956,7 @@
     if (!host) return;
     const cv = el.querySelector('canvas.over');
     const W = cv ? cv.clientWidth : 0;
-    host.innerHTML = '';
+    host.querySelectorAll('.idot').forEach((n) => n.remove());   // 加号气泡是常驻的，别一起清掉
     const openId = (s.open && s.open.k === 'ins') ? s.open.id : null;
     s.inserts.forEach((ins, j) => {
       const b = document.createElement('button');
@@ -954,6 +970,24 @@
     });
     setTip(el.querySelector('[data-act="dotA"]'), 0, W);
     setTip(el.querySelector('[data-act="dotC"]'), 1, W);
+    paintPlus(el, s);
+  }
+
+  /* 加号气泡：跟着 hover 的灰线走；落在已有圆点附近时让位，免得两个圆圈打架。
+     左右夹在 [-8, W-8]，圆心永远对准灰线（跟尾巴尖端一个道理：位置让给精度）。 */
+  function paintPlus(el, s){
+    const p = el.querySelector('.plus');
+    if (!p) return;
+    const cv = el.querySelector('canvas.over');
+    const W = cv ? cv.clientWidth : 0;
+    const on = !!(hover && hover.sid === s.id);
+    p.dataset.on = '0';
+    if (!on) return;
+    const kOf = (t) => (t - s.A) / Math.max(0.001, s.C - s.A) * W;
+    const x = kOf(hover.t);
+    for (const ins of s.inserts){ if (Math.abs(kOf(ins.t) - x) < 13) return; }
+    p.style.left = Math.max(-8, Math.min(W - 8, x - 8)) + 'px';
+    p.dataset.on = '1';
   }
 
   function updateCardMeta(el, s){
@@ -1078,23 +1112,32 @@
   function bindCanvas(cv, kind, s, ins){
     let px = null;
     cv.addEventListener('pointerdown', (e) => {
+      if (kind === 'over') return;              // 概览轴只是 hover 预览，不抓指针
       try { cv.setPointerCapture(e.pointerId); } catch (_) {}
       px = e.clientX;
-      if (kind === 'over'){
-        setPrev(s, e.clientX - cv.getBoundingClientRect().left, cv.clientWidth);
-      } else {
-        drag = { kind, sid: s.id, bid: ins ? ins.id : null };
-        if (kind === 'B') drag.raw = ins.t;
-        drawAll();
-      }
+      drag = { kind, sid: s.id, bid: ins ? ins.id : null };
+      if (kind === 'B') drag.raw = ins.t;
+      drawAll();
     });
-    cv.addEventListener('pointermove', (e) => {
+    /* 概览轴的 hover 区 = 波形行 + 圆点行（加号气泡在这两行里）。
+       只监听 canvas 的话，鼠标一往下走就 leave，加号还没点到就消失了。 */
+    const zone = kind === 'over' ? (cv.closest('.hoverzone') || cv) : cv;
+    zone.addEventListener('pointermove', (e) => {
+      if (kind === 'over'){
+        const r = cv.getBoundingClientRect();
+        // 落在波形横向范围之外（比如左侧的试听按钮）就不显示，免得灰线卡在一端
+        if (e.clientX < r.left || e.clientX > r.right){ hoverOff(cv, s); return; }
+        const k = Math.max(0, Math.min(1, (e.clientX - r.left) / cv.clientWidth));
+        hover = { sid: s.id, t: s.A + k * (s.C - s.A) };
+        drawOver(cv, s);
+        paintPlus(cv.closest('.card'), s);
+        return;
+      }
       if (px == null) return;
       const W = cv.clientWidth;
-      const dt = (e.clientX - px) / W * (kind === 'over' ? (s.C - s.A) : 5.6);
+      const dt = (e.clientX - px) / W * 5.6;
       px = e.clientX;
       if (Math.abs(dt) < 1e-4) return;
-      if (kind === 'over'){ setPrev(s, e.clientX - cv.getBoundingClientRect().left, W); return; }
       const b = kind === 'A' ? legalA(s) : kind === 'C' ? legalC(s) : legalB(s, ins);
       let nt = s[kind];
       if (kind === 'B') nt = ins.t;
@@ -1128,14 +1171,16 @@
     const up = () => { px = null; if (drag){ drag = null; drawAll(); } };
     cv.addEventListener('pointerup', up);
     cv.addEventListener('pointercancel', up);
-  }
-  function setPrev(s, x, W){
-    s.prev = Math.max(s.A, Math.min(s.C, s.A + x / W * (s.C - s.A)));
-    const card = document.querySelector('.card[data-sid="' + s.id + '"]');
-    if (card) updateCardMeta(card, s);
-    drawAll();
+    if (kind === 'over'){
+      zone.addEventListener('pointerleave', () => hoverOff(cv, s));
+    }
   }
 
+  function hoverOff(cv, s){
+    if (hover && hover.sid === s.id) hover = null;
+    drawOver(cv, s);
+    paintPlus(cv.closest('.card'), s);
+  }
   /* ================= 全局播放头（真机由 IINA 提供） ================= */
   const track = document.getElementById('track');
   const trackph = document.getElementById('trackph');
